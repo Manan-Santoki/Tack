@@ -17,7 +17,7 @@ This is a fork of [weiykong/ClipHistory](https://github.com/weiykong/ClipHistory
 ## Requirements
 
 - macOS 26 or later
-- Xcode 27 with Swift 6.4 to build (the Command Line Tools alone aren't enough)
+- Xcode 26 or later to build (the Command Line Tools alone aren't enough)
 
 ## Build and install
 
