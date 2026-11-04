@@ -5,8 +5,11 @@ struct TackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra("Tack", systemImage: "list.clipboard") {
+        MenuBarExtra {
             MenuContent(delegate: delegate, settings: delegate.settings)
+        } label: {
+            Image(nsImage: .tackMenuBar)
+                .accessibilityLabel("Tack")
         }
 
         Settings {
