@@ -5,7 +5,7 @@ struct TackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra("Tack", systemImage: "pin.fill") {
+        MenuBarExtra("Tack", systemImage: "list.clipboard") {
             MenuContent(delegate: delegate, settings: delegate.settings)
         }
 
