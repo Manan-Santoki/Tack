@@ -3,9 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="ClipHistory"
+VERSION="2.0.0"
 DIST="$ROOT/dist"
 APP_BUNDLE="$DIST/$APP_NAME.app"
 DMG="$DIST/$APP_NAME.dmg"
+
+# SwiftUI's macros need full Xcode; the Command Line Tools can't build this app.
+if [[ -z "${DEVELOPER_DIR:-}" && "$(xcode-select -p)" == *CommandLineTools* ]]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
 
 # ── 1. Release build ──────────────────────────────────────────────────────────
 echo "▸ Building release binary…"
@@ -32,7 +38,7 @@ cp "$DIST/AppIcon.icns"         "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 printf 'APPL????' > "$APP_BUNDLE/Contents/PkgInfo"
 
-cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
+cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -42,7 +48,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
     <string>ClipHistory</string>
 
     <key>CFBundleIdentifier</key>
-    <string>com.weiyuankong.cliphistory</string>
+    <string>io.github.manan-santoki.cliphistory</string>
 
     <key>CFBundleName</key>
     <string>ClipHistory</string>
@@ -54,16 +60,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
     <string>AppIcon</string>
 
     <key>CFBundleVersion</key>
-    <string>1.3.0</string>
+    <string>$VERSION</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.3.0</string>
+    <string>$VERSION</string>
 
     <key>CFBundlePackageType</key>
     <string>APPL</string>
 
     <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+    <string>26.0</string>
 
     <!-- Hide from Dock; lives only in the menu bar -->
     <key>LSUIElement</key>
@@ -76,14 +82,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
     <true/>
 
     <key>NSAccessibilityUsageDescription</key>
-    <string>ClipHistory needs Accessibility access to detect your clipboard shortcut and paste items into other apps.</string>
+    <string>ClipHistory needs Accessibility access to paste clips and to open at your text cursor.</string>
 </dict>
 </plist>
 PLIST
 
 # ── 4. Ad-hoc code sign ───────────────────────────────────────────────────────
-echo "▸ Code signing (ad-hoc)…"
-codesign --force --deep --sign - "$APP_BUNDLE"
+# A stable identity keeps Accessibility and Keychain approvals across rebuilds.
+# An ad-hoc signature looks like a new app to macOS every time.
+IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)"
+echo "▸ Code signing (${IDENTITY:-ad-hoc})…"
+codesign --force --sign "${IDENTITY:--}" "$APP_BUNDLE"
 
 # ── 5. Create DMG with drag-to-Applications layout ────────────────────────────
 echo "▸ Creating DMG…"

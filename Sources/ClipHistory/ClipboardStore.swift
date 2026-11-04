@@ -5,386 +5,321 @@ import Security
 
 // MARK: - Source app
 
-struct SourceApp: Codable, Equatable {
+struct SourceApp: Codable, Equatable, Sendable {
     let bundleID: String
-    let name:     String
+    let name: String
 
-    var icon: NSImage? { SourceApp.cachedIcon(for: bundleID) }
-
-    private static let cache = NSCache<NSString, NSImage>()
-
-    private static func cachedIcon(for bundleID: String) -> NSImage? {
-        if let hit = cache.object(forKey: bundleID as NSString) { return hit }
+    var icon: NSImage? {
+        if let hit = Self.iconCache.object(forKey: bundleID as NSString) { return hit }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
-        let img = NSWorkspace.shared.icon(forFile: url.path)
-        cache.setObject(img, forKey: bundleID as NSString)
-        return img
-    }
-}
-
-// MARK: - Content kind
-
-enum ClipContent: Equatable {
-    case text(String)
-    case image(Data)    // PNG thumbnail (≤ 480 px on longest side)
-}
-
-extension ClipContent: Codable {
-    private enum CK: String, CodingKey { case type, text, imageData }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CK.self)
-        switch self {
-        case .text(let t):
-            try c.encode("text",  forKey: .type)
-            try c.encode(t,       forKey: .text)
-        case .image(let d):
-            try c.encode("image", forKey: .type)
-            try c.encode(d,       forKey: .imageData)
-        }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        Self.iconCache.setObject(icon, forKey: bundleID as NSString)
+        return icon
     }
 
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CK.self)
-        switch try c.decode(String.self, forKey: .type) {
-        case "text":  self = .text(try c.decode(String.self, forKey: .text))
-        case "image": self = .image(try c.decode(Data.self, forKey: .imageData))
-        default:      throw DecodingError.dataCorruptedError(forKey: .type, in: c,
-                          debugDescription: "Unknown ClipContent type")
-        }
-    }
+    // NSCache is thread-safe.
+    private nonisolated(unsafe) static let iconCache = NSCache<NSString, NSImage>()
 }
 
 // MARK: - Clip item
 
-struct ClipItem: Identifiable, Equatable {
-    let id:        UUID
-    let content:   ClipContent
-    let date:      Date
-    let sourceApp: SourceApp?
-    var pinned:    Bool
-
-    init(content: ClipContent, date: Date = .now, sourceApp: SourceApp? = nil, pinned: Bool = false) {
-        self.id        = UUID()
-        self.content   = content
-        self.date      = date
-        self.sourceApp = sourceApp
-        self.pinned    = pinned
-    }
+/// What the list needs to show a clip. The clip's full data lives in its own encrypted file.
+struct ClipItem: Identifiable, Codable, Equatable, Sendable {
+    var id = UUID()
+    let kind: ClipKind
+    let thumbnail: Data?
+    let contentHash: String
+    var date = Date.now
+    var sourceApp: SourceApp?
+    var pinned = false
 
     var preview: String {
-        switch content {
-        case .text(let t): return t.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .image:       return "Image"
+        switch kind {
+        case .text(let text): text
+        case .image: "Image"
+        case .files(let names): names.count == 1 ? names[0] : "\(names.count) files: \(names.joined(separator: ", "))"
+        case .other(let description): description
         }
     }
 
-    var textContent: String? {
-        if case .text(let t) = content { return t }
-        return nil
-    }
-
-    var isImage: Bool {
-        if case .image = content { return true }
-        return false
-    }
-}
-
-extension ClipItem: Codable {
-    private enum CK: String, CodingKey { case id, content, date, sourceApp, text, pinned }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CK.self)
-        try c.encode(id,        forKey: .id)
-        try c.encode(content,   forKey: .content)
-        try c.encode(date,      forKey: .date)
-        try c.encodeIfPresent(sourceApp, forKey: .sourceApp)
-        if pinned { try c.encode(true, forKey: .pinned) }
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CK.self)
-        id        = try  c.decode(UUID.self,      forKey: .id)
-        date      = try  c.decode(Date.self,      forKey: .date)
-        sourceApp = try? c.decode(SourceApp.self, forKey: .sourceApp)
-        pinned    = (try? c.decode(Bool.self,     forKey: .pinned)) ?? false
-
-        if let cont = try? c.decode(ClipContent.self, forKey: .content) {
-            content = cont
-        } else if let text = try? c.decode(String.self, forKey: .text) {
-            content = .text(text)
-        } else {
-            throw DecodingError.dataCorruptedError(forKey: .content, in: c,
-                debugDescription: "ClipItem missing both 'content' and legacy 'text' key")
-        }
-    }
+    var isImage: Bool { kind == .image }
 }
 
 // MARK: - Store
 
+@MainActor
 @Observable
 final class ClipboardStore {
     private(set) var items: [ClipItem] = []
+
     private var maxCount: Int
+    /// The change count of our own last paste, so it isn't recorded as a new copy.
+    private var ownChangeCount: Int?
+    private var pendingSave: Task<Void, Never>?
 
-    var suppressNextPoll = false
+    private let thumbnailCache = NSCache<NSUUID, NSImage>()
+    private let directory: URL
+    private let blobDirectory: URL
+    private let key: SymmetricKey
 
-    // Decoded-image cache — avoids re-inflating PNG bytes on every render pass.
-    // Keyed by item UUID so entries are automatically orphaned when items are evicted.
-    private let imageCache = NSCache<NSUUID, NSImage>()
+    // All disk access is serial, so reading a clip always sees its finished write.
+    private let diskQueue = DispatchQueue(label: "cliphistory.disk", qos: .utility)
 
-    private let saveURL: URL = {
-        let dir = FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClipHistory", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("history.json.enc")
-    }()
+    private var indexURL: URL { directory.appendingPathComponent("index.enc") }
 
-    // AES-GCM key stored in the Keychain — never written to disk in plaintext.
-    private let encryptionKey: SymmetricKey
+    init(maxCount: Int, directory: URL = ClipboardStore.defaultDirectory, key: SymmetricKey? = nil) {
+        // If the Keychain refuses the key, run from a temporary folder until the next
+        // launch. The saved history can't be read, but it stays intact for when it can.
+        let resolvedKey = key ?? ClipboardStore.loadOrCreateKey()
+        let directory = resolvedKey == nil
+            ? FileManager.default.temporaryDirectory.appendingPathComponent("ClipHistory-\(UUID().uuidString)")
+            : directory
 
-    // Pending save work item — cancelled and rescheduled on each write so
-    // rapid clipboard bursts collapse into a single disk write.
-    private var pendingSave: DispatchWorkItem?
-
-    init(maxCount: Int = 50) {
-        self.maxCount      = maxCount
-        self.encryptionKey = ClipboardStore.loadOrCreateKey()
-        imageCache.countLimit = maxCount * 2
+        self.maxCount = maxCount
+        self.directory = directory
+        self.blobDirectory = directory.appendingPathComponent("clips", isDirectory: true)
+        self.key = resolvedKey ?? SymmetricKey(size: .bits256)
+        try? FileManager.default.createDirectory(
+            at: blobDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         load()
     }
 
-    // MARK: - Image cache
-
-    func cachedImage(for item: ClipItem) -> NSImage? {
-        let key = item.id as NSUUID
-        if let hit = imageCache.object(forKey: key) { return hit }
-        guard case .image(let data) = item.content,
-              let img = NSImage(data: data) else { return nil }
-        imageCache.setObject(img, forKey: key)
-        return img
+    nonisolated static var defaultDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ClipHistory", isDirectory: true)
     }
 
-    // MARK: - Public API
+    // MARK: - Capture
 
-    func pollClipboard(source: SourceApp? = nil) {
-        if suppressNextPoll { suppressNextPoll = false; return }
-
-        let pb = NSPasteboard.general
-
-        // Skip items explicitly marked as sensitive by the source app
-        // (1Password, Keychain prompts, etc. set this type on the pasteboard).
-        let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
-        if pb.types?.contains(concealedType) == true { return }
-
-        // ── 1. File URLs from Finder ──────────────────────────────────────────
-        let imageExts: Set<String> = ["jpg","jpeg","png","gif","tiff","tif",
-                                      "webp","heic","bmp","avif"]
-        if let urls = pb.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty {
-            for url in urls where imageExts.contains(url.pathExtension.lowercased()) {
-                if let img = NSImage(contentsOf: url), let thumb = img.pngThumbnail() {
-                    add(ClipItem(content: .image(thumb), sourceApp: source))
-                    return
-                }
-            }
-            return
-        }
-
-        // ── 2. Direct image data ──────────────────────────────────────────────
-        // Skip if the pasteboard also carries text — apps like Excel write both
-        // a bitmap preview and structured text/CSV simultaneously. Preferring
-        // text means cell content stays editable when pasted into a text editor.
-        let pasteboardHasText = pb.string(forType: .string)
-            .map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false
-        if !pasteboardHasText,
-           let imgs = pb.readObjects(forClasses: [NSImage.self], options: nil) as? [NSImage],
-           let img  = imgs.first(where: { $0.isValid }),
-           let thumb = img.pngThumbnail() {
-            add(ClipItem(content: .image(thumb), sourceApp: source))
-            return
-        }
-
-        // ── 3. Text ───────────────────────────────────────────────────────────
-        guard let text = pb.string(forType: .string),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              text != items.first?.textContent
+    func capture(from pasteboard: NSPasteboard = .general, source: SourceApp? = nil) {
+        guard pasteboard.changeCount != ownChangeCount,
+              let payload = ClipPayload(pasteboard: pasteboard),
+              let kind = payload.kind
         else { return }
-        add(ClipItem(content: .text(text), sourceApp: source))
-    }
 
-    func clearAll() {
-        items = []
-        imageCache.removeAllObjects()
-        flushSave()
-    }
-
-    func updateMaxCount(_ n: Int) {
-        maxCount = n
-        imageCache.countLimit = n * 2
+        let hash = payload.contentHash
+        if let index = items.firstIndex(where: { $0.contentHash == hash }) {
+            items[index].date = .now
+            items.insert(items.remove(at: index), at: 0)
+        } else {
+            let item = ClipItem(kind: kind, thumbnail: payload.makeThumbnail(), contentHash: hash, sourceApp: source)
+            items.insert(item, at: 0)
+            writeBlob(payload, id: item.id)
+        }
+        pinnedFirst()
         trimToLimit()
         scheduleSave()
     }
 
+    // MARK: - Paste
+
+    /// Puts a clip back on the pasteboard exactly as it was copied, or as plain text only.
+    func restore(_ item: ClipItem, asPlainText: Bool = false, to pasteboard: NSPasteboard = .general) {
+        let payload = readBlob(id: item.id)
+        let plainText = payload?.plainText ?? {
+            if case .text(let text) = item.kind { return text }
+            return nil
+        }()
+
+        if let payload, !asPlainText || plainText == nil {
+            payload.write(to: pasteboard)
+        } else if let plainText {
+            pasteboard.clearContents()
+            pasteboard.setString(plainText, forType: .string)
+        } else {
+            return
+        }
+        ownChangeCount = pasteboard.changeCount
+    }
+
+    // MARK: - Editing
+
     func togglePin(id: UUID) {
-        guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
-        items[idx].pinned.toggle()
-        reorder()
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].pinned.toggle()
+        pinnedFirst()
+        trimToLimit()
         scheduleSave()
     }
 
     func remove(id: UUID) {
-        if let idx = items.firstIndex(where: { $0.id == id }) {
-            items.remove(at: idx)
-            imageCache.removeObject(forKey: id as NSUUID)
-            scheduleSave()
-        }
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        forget(items.remove(at: index))
+        scheduleSave()
     }
 
-    func filtered(query: String, showImages: Bool = true) -> [ClipItem] {
-        var result = items
-        if !showImages { result = result.filter { !$0.isImage } }
-        guard !query.isEmpty else { return result }
-        return result.filter {
-            $0.preview.localizedCaseInsensitiveContains(query) ||
-            ($0.sourceApp?.name.localizedCaseInsensitiveContains(query) ?? false)
-        }
+    func clearAll() {
+        items.forEach(forget)
+        items = []
+        saveNow()
     }
 
-    // MARK: - Private helpers
-
-    private func add(_ item: ClipItem) {
-        items.insert(item, at: 0)
+    func updateMaxCount(_ count: Int) {
+        maxCount = count
         trimToLimit()
         scheduleSave()
     }
 
-    private func trimToLimit() {
-        let pinned   = items.filter { $0.pinned }
-        let unpinned = items.filter { !$0.pinned }
-        // Both pinned and unpinned capped independently at maxCount
-        let trimmedPinned   = Array(pinned.prefix(maxCount))
-        let trimmedUnpinned = Array(unpinned.prefix(maxCount))
-        // Evict decoded images for removed items
-        let kept = Set((trimmedPinned + trimmedUnpinned).map { $0.id })
-        for item in items where !kept.contains(item.id) {
-            imageCache.removeObject(forKey: item.id as NSUUID)
+    // MARK: - Reading
+
+    func filtered(query: String, showImages: Bool = true) -> [ClipItem] {
+        items.filter { item in
+            guard showImages || !item.isImage else { return false }
+            guard !query.isEmpty else { return true }
+            return item.preview.localizedCaseInsensitiveContains(query)
+                || item.sourceApp?.name.localizedCaseInsensitiveContains(query) == true
         }
-        items = trimmedPinned + trimmedUnpinned
     }
 
-    private func reorder() {
-        let pinned   = items.filter { $0.pinned }
-        let unpinned = items.filter { !$0.pinned }
-        items = pinned + unpinned
+    func thumbnail(for item: ClipItem) -> NSImage? {
+        let key = item.id as NSUUID
+        if let hit = thumbnailCache.object(forKey: key) { return hit }
+        guard let data = item.thumbnail, let image = NSImage(data: data) else { return nil }
+        thumbnailCache.setObject(image, forKey: key)
+        return image
     }
 
-    // MARK: - Debounced save
+    // MARK: - List upkeep
+
+    private func pinnedFirst() {
+        items = items.filter(\.pinned) + items.filter { !$0.pinned }
+    }
+
+    /// Only unpinned clips are evicted; pins stay until removed by hand.
+    private func trimToLimit() {
+        var unpinnedSeen = 0
+        items.removeAll { item in
+            guard !item.pinned else { return false }
+            unpinnedSeen += 1
+            guard unpinnedSeen > maxCount else { return false }
+            forget(item)
+            return true
+        }
+    }
+
+    private func forget(_ item: ClipItem) {
+        thumbnailCache.removeObject(forKey: item.id as NSUUID)
+        let url = blobURL(id: item.id)
+        diskQueue.async { try? FileManager.default.removeItem(at: url) }
+    }
+
+    // MARK: - Clip files
+
+    private func blobURL(id: UUID) -> URL {
+        blobDirectory.appendingPathComponent(id.uuidString + ".enc")
+    }
+
+    private func writeBlob(_ payload: ClipPayload, id: UUID) {
+        let url = blobURL(id: id)
+        let key = key
+        diskQueue.async {
+            let encoder = PropertyListEncoder()
+            encoder.outputFormat = .binary
+            guard let plain = try? encoder.encode(payload) else { return }
+            Self.seal(plain, key: key, to: url)
+        }
+    }
+
+    private func readBlob(id: UUID) -> ClipPayload? {
+        let url = blobURL(id: id)
+        let key = key
+        return diskQueue.sync {
+            guard let plain = Self.open(url, key: key) else { return nil }
+            return try? PropertyListDecoder().decode(ClipPayload.self, from: plain)
+        }
+    }
+
+    // MARK: - Index
 
     private func scheduleSave() {
         pendingSave?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.flushSave() }
-        pendingSave = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-    }
-
-    private func flushSave() {
-        pendingSave = nil
-        // Snapshot on the main thread, then encrypt + write off it so a large
-        // history never hitches the popup mid-animation.
-        guard let plain = try? JSONEncoder().encode(items) else { return }
-        let key = encryptionKey
-        let url = saveURL
-        ClipboardStore.saveQueue.async {
-            guard let sealed = try? AES.GCM.seal(plain, using: key),
-                  let combined = sealed.combined else { return }
-            try? combined.write(to: url, options: .atomic)
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled else { return }
+            self?.save()
         }
     }
 
-    private static let saveQueue = DispatchQueue(label: "com.weiyuankong.cliphistory.save",
-                                                 qos: .utility)
+    private func save() {
+        pendingSave = nil
+        guard let plain = try? JSONEncoder().encode(items) else { return }
+        let url = indexURL
+        let key = key
+        diskQueue.async { Self.seal(plain, key: key, to: url) }
+    }
 
-    // MARK: - Load (decrypts + falls back to legacy plaintext)
+    /// Writes everything now and waits until it's on disk.
+    func saveNow() {
+        pendingSave?.cancel()
+        save()
+        diskQueue.sync {}
+    }
 
     private func load() {
-        if let enc = try? Data(contentsOf: saveURL),
-           let box = try? AES.GCM.SealedBox(combined: enc),
-           let plain = try? AES.GCM.open(box, using: encryptionKey),
-           let saved = try? JSONDecoder().decode([ClipItem].self, from: plain) {
-            items = Array(saved.prefix(maxCount * 2))
-            return
+        if FileManager.default.fileExists(atPath: indexURL.path) {
+            // An unreadable index says nothing about which clip files are in use, so keep them all.
+            guard let plain = Self.open(indexURL, key: key),
+                  let saved = try? JSONDecoder().decode([ClipItem].self, from: plain)
+            else { return }
+            items = saved
         }
+        removeOrphanedBlobs()
+    }
 
-        // Migrate legacy unencrypted history.json if present
-        let legacyURL = saveURL.deletingLastPathComponent().appendingPathComponent("history.json")
-        if let data  = try? Data(contentsOf: legacyURL),
-           let saved = try? JSONDecoder().decode([ClipItem].self, from: data) {
-            items = Array(saved.prefix(maxCount * 2))
-            flushSave()                          // re-save encrypted immediately
-            try? FileManager.default.removeItem(at: legacyURL)
+    /// Clip files with no index entry are left over from a crash before the index saved.
+    private func removeOrphanedBlobs() {
+        let known = Set(items.map(\.id.uuidString))
+        let files = (try? FileManager.default.contentsOfDirectory(at: blobDirectory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where !known.contains(file.deletingPathExtension().lastPathComponent) {
+            try? FileManager.default.removeItem(at: file)
         }
     }
 
-    // MARK: - Keychain key management
+    // MARK: - Encryption
 
-    private static let keychainService = "com.weiyuankong.cliphistory"
-    private static let keychainAccount = "history-encryption-key"
+    private nonisolated static func seal(_ plain: Data, key: SymmetricKey, to url: URL) {
+        guard let sealed = try? AES.GCM.seal(plain, using: key).combined else { return }
+        try? sealed.write(to: url, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    }
 
-    private static func loadOrCreateKey() -> SymmetricKey {
+    private nonisolated static func open(_ url: URL, key: SymmetricKey) -> Data? {
+        guard let sealed = try? Data(contentsOf: url),
+              let box = try? AES.GCM.SealedBox(combined: sealed)
+        else { return nil }
+        return try? AES.GCM.open(box, using: key)
+    }
+
+    // MARK: - Keychain
+
+    /// Returns nil when a key exists but the Keychain won't release it, for example when denied.
+    private nonisolated static func loadOrCreateKey() -> SymmetricKey? {
         let query: [CFString: Any] = [
-            kSecClass:       kSecClassGenericPassword,
-            kSecAttrService: keychainService,
-            kSecAttrAccount: keychainAccount,
-            kSecReturnData:  true,
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: "io.github.manan-santoki.cliphistory",
+            kSecAttrAccount: "history-encryption-key",
         ]
+
+        var lookup = query
+        lookup[kSecReturnData] = true
         var result: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-           let data = result as? Data, data.count == 32 {
+        let status = SecItemCopyMatching(lookup as CFDictionary, &result)
+        if status == errSecSuccess, let data = result as? Data, data.count == 32 {
             return SymmetricKey(data: data)
         }
-
-        // Generate a fresh 256-bit key and store it
-        let key     = SymmetricKey(size: .bits256)
-        let keyData = key.withUnsafeBytes { Data($0) }
-        let add: [CFString: Any] = [
-            kSecClass:            kSecClassGenericPassword,
-            kSecAttrService:      keychainService,
-            kSecAttrAccount:      keychainAccount,
-            kSecValueData:        keyData,
-            kSecAttrAccessible:   kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        ]
-        // Delete stale entry (wrong size) before inserting
-        SecItemDelete(query as CFDictionary)
-        SecItemAdd(add as CFDictionary, nil)
-        return key
-    }
-}
-
-// MARK: - NSImage thumbnail helper
-
-private extension NSImage {
-    func pngThumbnail(maxDimension: CGFloat = 480) -> Data? {
-        var pixW = representations.map(\.pixelsWide).max() ?? 0
-        var pixH = representations.map(\.pixelsHigh).max() ?? 0
-        if pixW == 0 { pixW = Int(size.width)  }
-        if pixH == 0 { pixH = Int(size.height) }
-        guard pixW > 0, pixH > 0 else { return nil }
-
-        let scale = min(maxDimension / CGFloat(pixW), maxDimension / CGFloat(pixH), 1.0)
-        let newW  = max(1, Int(floor(CGFloat(pixW) * scale)))
-        let newH  = max(1, Int(floor(CGFloat(pixH) * scale)))
-
-        let thumb = NSImage(size: NSSize(width: newW, height: newH), flipped: false) { [self] rect in
-            self.draw(in: rect)
-            return true
+        guard status == errSecItemNotFound else {
+            NSLog("ClipHistory: Keychain denied the history key: \(status)")
+            return nil
         }
 
-        guard let tiff   = thumb.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-        return bitmap.representation(using: .png, properties: [.compressionFactor: 0.85])
+        let key = SymmetricKey(size: .bits256)
+        var add = query
+        add[kSecValueData] = key.withUnsafeBytes { Data($0) }
+        add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+        return key
     }
 }

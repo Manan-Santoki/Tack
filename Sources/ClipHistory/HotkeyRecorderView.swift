@@ -16,6 +16,8 @@ final class HotkeyRecorderNSView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    override var intrinsicContentSize: NSSize { NSSize(width: 120, height: 24) }
+
     // MARK: - First responder
 
     override var acceptsFirstResponder: Bool { true }
@@ -62,24 +64,14 @@ final class HotkeyRecorderNSView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        let path = NSBezierPath(roundedRect: rect, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
 
-        (isRecording
-            ? NSColor.controlAccentColor.withAlphaComponent(0.12)
-            : NSColor.controlBackgroundColor.withAlphaComponent(0.82)
-        ).setFill()
+        (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.12) : NSColor.quaternaryLabelColor).setFill()
         path.fill()
-
-        (isRecording
-            ? NSColor.controlAccentColor.withAlphaComponent(0.70)
-            : NSColor.separatorColor.withAlphaComponent(0.70)
-        ).setStroke()
-        path.lineWidth = 1
-        path.stroke()
 
         let label = isRecording ? "Type shortcut…" : hotkey.displayString
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
             .foregroundColor: isRecording ? NSColor.controlAccentColor : NSColor.labelColor,
         ]
         let str = NSAttributedString(string: label, attributes: attrs)
@@ -101,5 +93,9 @@ struct HotkeyRecorder: NSViewRepresentable {
     func updateNSView(_ view: HotkeyRecorderNSView, context: Context) {
         view.hotkey    = hotkey
         view.onChanged = { hotkey = $0 }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: HotkeyRecorderNSView, context: Context) -> CGSize? {
+        nsView.intrinsicContentSize
     }
 }

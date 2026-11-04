@@ -1,67 +1,43 @@
 import Foundation
 import Observation
 
-/// Checks the GitHub Releases API for a newer version of ClipHistory.
-/// The result is exposed as observable properties so the popup can show
-/// a subtle banner when an update is available.
+/// Checks this fork's GitHub releases once per launch.
+@MainActor
 @Observable
 final class UpdateChecker {
+    nonisolated static var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+    }
 
-    /// Current app version — bump this when tagging a new release.
-    static let currentVersion = "1.3.4"
-
-    // MARK: - Observable state
-
-    /// Non-nil when a newer release was found on GitHub.
-    var latestVersion: String?
-    /// Direct URL to the release page (for the user to open).
-    var releaseURL: URL?
+    private(set) var latestVersion: String?
+    private(set) var releaseURL: URL?
 
     var updateAvailable: Bool { latestVersion != nil }
 
-    // MARK: - Check
-
-    /// Fires a single request to the GitHub Releases API.
-    /// Safe to call from any thread; updates are dispatched to main.
-    func checkForUpdate() {
-        let urlString = "https://api.github.com/repos/weiykong/ClipHistory/releases/latest"
-        guard let url = URL(string: urlString) else { return }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        // Keep the request lightweight — no auth needed for public repos.
-        request.timeoutInterval = 10
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let data, error == nil else { return }
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let tagName = json["tag_name"] as? String,
-                  let htmlURL = json["html_url"] as? String
-            else { return }
-
-            let remote = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
-
-            if Self.isNewer(remote: remote, current: Self.currentVersion) {
-                DispatchQueue.main.async {
-                    self?.latestVersion = remote
-                    self?.releaseURL    = URL(string: htmlURL)
-                }
-            }
-        }.resume()
+    private struct Release: Decodable {
+        let tag_name: String
+        let html_url: URL
     }
 
-    // MARK: - Semver comparison
+    func checkForUpdate() {
+        Task {
+            var request = URLRequest(url: URL(string: "https://api.github.com/repos/Manan-Santoki/ClipHistory/releases/latest")!)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.timeoutInterval = 10
 
-    /// Returns true when `remote` is strictly newer than `current`.
-    private static func isNewer(remote: String, current: String) -> Bool {
-        let r = remote.split(separator: ".").compactMap { Int($0) }
-        let c = current.split(separator: ".").compactMap { Int($0) }
-        for i in 0..<max(r.count, c.count) {
-            let rv = i < r.count ? r[i] : 0
-            let cv = i < c.count ? c[i] : 0
-            if rv > cv { return true }
-            if rv < cv { return false }
+            guard let (data, _) = try? await URLSession.shared.data(for: request),
+                  let release = try? JSONDecoder().decode(Release.self, from: data)
+            else { return }
+
+            let remote = release.tag_name.hasPrefix("v") ? String(release.tag_name.dropFirst()) : release.tag_name
+            if Self.isNewer(remote, than: Self.currentVersion) {
+                latestVersion = remote
+                releaseURL = release.html_url
+            }
         }
-        return false
+    }
+
+    nonisolated static func isNewer(_ remote: String, than current: String) -> Bool {
+        remote.compare(current, options: .numeric) == .orderedDescending
     }
 }

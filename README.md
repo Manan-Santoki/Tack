@@ -1,181 +1,73 @@
-<div align="center">
-
-<img src="docs/icon.png" width="128" height="128" alt="ClipHistory icon" />
-
 # ClipHistory
 
-**A lightweight, native macOS clipboard manager.**  
-One hotkey. Instant popup. Text and images. No subscription.
+A minimal, native macOS clipboard manager in the spirit of Windows + V. Press a shortcut and your history opens at your text cursor. Pick a clip and it pastes exactly as you copied it.
 
-[![CI](https://github.com/weiykong/ClipHistory/actions/workflows/ci.yml/badge.svg)](https://github.com/weiykong/ClipHistory/actions/workflows/ci.yml)
-[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-blue)](https://github.com/weiykong/ClipHistory/releases/latest)
-[![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange)](https://swift.org)
-[![MIT License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+This is a fork of [weiykong/ClipHistory](https://github.com/weiykong/ClipHistory), rebuilt with native macOS controls and full-fidelity clips.
 
-[**Download for Mac**](https://github.com/weiykong/ClipHistory/releases/latest/download/ClipHistory.dmg) · [Website](https://weiykong.github.io/ClipHistory) · [Releases](https://github.com/weiykong/ClipHistory/releases)
+## What's different in this fork
 
-</div>
+- **Original formats:** every format on the clipboard is saved byte for byte, so images keep full resolution, and rich text and multiple files stay intact.
+- **Opens at the text cursor:** falls back to the focused input field, then the mouse pointer, for apps that don't report their cursor.
+- **Native UI:** Liquid Glass popup, grouped settings form, `MenuBarExtra`, and a standard search field.
+- **No keyboard interception:** the popup takes focus directly, so there's no global event tap.
+- **Pins are permanent:** they never get evicted by newer clips.
+- **List or grid:** list favours text, grid favours image previews.
+- **Your choice on other devices:** record or ignore clips arriving from your iPhone through Universal Clipboard.
 
----
+## Requirements
 
-## What it looks like
+- macOS 26 or later
+- Xcode 27 with Swift 6.4 to build (the Command Line Tools alone aren't enough)
 
-<div align="center">
-  <img src="docs/screenshot.png" width="480" alt="ClipHistory popup in front of a text editor" />
-</div>
-
----
-
-## Why ClipHistory?
-
-If you want 200 features, use Raycast. If you want iCloud sync, use Paste. If you just want a fast, native, free clipboard history that handles text and images — this is it.
-
-| | |
-|---|---|
-| ✅ Free & open source | ✅ Text & images |
-| ✅ Native Swift — ~1 MB | ✅ Pin favourites |
-| ✅ Search as you type | ✅ Per-app privacy exclusions |
-| ✅ Source app icons | ✅ Survives restarts |
-| ✅ Launch at Login | ✅ No subscription, no telemetry |
-| ✅ AES-256-GCM encrypted history | ✅ Sensitive data auto-skipped |
-
----
-
-## Features
-
-- **⚡ Instant popup** — press `⌥V` from any app, your clipboard history appears at the cursor
-- **🖼 Text & images** — captures plain text, screenshots, images from Finder, browsers, Preview
-- **🔍 Search** — type to filter instantly; searches content and source app name
-- **📌 Pin favourites** — pinned items float to the top and are never evicted by newer copies
-- **🔐 Encrypted history** — disk storage is AES-256-GCM encrypted; the key lives in your Keychain, never on disk
-- **🔒 Sensitive data protection** — items marked by password managers (`org.nspasteboard.ConcealedType`) are automatically skipped before recording
-- **🚫 Per-app exclusions** — block any app from being recorded; changes from excluded apps are silently ignored
-- **👁 Hide images toggle** — one click in the popup header to go text-only
-- **🏷 Source app icons** — see at a glance which app each item came from
-- **🪶 Truly lightweight** — ~1 MB, pure SwiftUI, no background web process, no telemetry
-
----
-
-## Status
-
-**Feature-complete — maintenance only.** The feature set shipped in v1.3.4 is the intended
-scope of this app; there is no roadmap. Ongoing work is limited to keeping it working on new
-macOS releases and fixing reported bugs. If you want a clipboard manager with more features,
-use Raycast or Paste — this one is deliberately small.
-
-Verified on macOS 26.6.2 (Swift 6.3.3): builds clean, and the APIs this app depends on —
-Accessibility trust, `CGEvent.tapCreate`/`tapEnable`, pasteboard `changeCount` polling,
-`org.nspasteboard.ConcealedType`, AES-256-GCM, Keychain — all behave as expected. See
-[docs/macos26-smoke-test.md](docs/macos26-smoke-test.md).
-
----
-
-## Install
-
-### Homebrew (tap)
+## Build and install
 
 ```bash
-brew tap weiykong/tap
-brew install --cask cliphistory
-```
-
-The app is ad-hoc signed (no Apple Developer ID), so Gatekeeper still asks for confirmation on
-first launch. That is also why it cannot live in the official `homebrew/cask` repo, which
-deprecates casks that fail Gatekeeper checks. The tap does not bypass Gatekeeper — it just makes
-the install command work.
-
-### Download (recommended if you don't use Homebrew)
-
-1. [**Download ClipHistory.dmg**](https://github.com/weiykong/ClipHistory/releases/latest/download/ClipHistory.dmg)
-2. Open the DMG and drag **ClipHistory.app** to `/Applications`
-3. **Unlock the app (one-time)** — macOS blocks apps without an Apple certificate. Open Terminal and run:
-   ```bash
-   xattr -d com.apple.quarantine /Applications/ClipHistory.app
-   ```
-   Then double-click ClipHistory to open it normally.
-4. Grant **Accessibility** permission when the onboarding screen asks
-
-**Requires macOS 14 Sonoma or later.**
-
-### Build from source
-
-```bash
-git clone https://github.com/weiykong/ClipHistory.git
+git clone https://github.com/Manan-Santoki/ClipHistory.git
 cd ClipHistory
-bash scripts/build-dmg.sh   # → dist/ClipHistory.dmg
+bash scripts/build-dmg.sh
+cp -R dist/ClipHistory.app /Applications/
+open /Applications/ClipHistory.app
 ```
 
-Requires Xcode Command Line Tools: `xcode-select --install`
+Then allow ClipHistory under System Settings → Privacy & Security → Accessibility. It's needed to paste for you and to find the text cursor.
 
----
+Without a signing certificate the app gets an ad-hoc signature, so macOS treats each rebuild as a new app and asks for Keychain and Accessibility approval again. To avoid that, add your Apple ID under Xcode → Settings → Accounts and create an Apple Development certificate. The build script uses it automatically.
 
 ## Usage
 
 | Action | Shortcut |
 |---|---|
-| Open popup | `⌥V` *(customisable in Settings)* |
-| Navigate | `↑` / `↓` |
-| Paste selected | `↵` |
-| Search | Click the search bar, then type |
-| Pin / unpin item | Click the `pin` icon on the row |
-| Hide images | `photo` toggle in the popup header |
-| Close | `Esc` or click outside |
-| Settings | Menu bar icon → **Settings…** |
+| Open or close | `⌘⇧V` (change it in Settings) |
+| Search | Just type |
+| Move | `↑` `↓` (and `←` `→` in grid) |
+| Switch list and grid | `⌘L` |
+| Paste | `↵` |
+| Paste as plain text | `⇧↵` |
+| Paste by position | `⌘1` to `⌘9` |
+| Pin or unpin | `⌘P` |
+| Delete | `⌘⌫` |
+| Close | `Esc` or click away |
 
----
+Right-click a clip for the same actions.
 
-## Architecture
+## Privacy
 
-Zero dependencies. Swift Package Manager executable target.
+- History stays on your Mac, encrypted with AES-256-GCM. The key is in your Keychain.
+- Clips marked as sensitive by their app, such as passwords from a password manager, are never recorded.
+- You can turn off recording per app in Settings.
+- The only network request is a check of this repo's GitHub releases at launch.
 
-```
-Sources/ClipHistory/
-├── main.swift                  # NSApplication entry point
-├── AppDelegate.swift           # Menu bar, hotkey, clipboard polling timer
-├── AppSettings.swift           # @Observable settings + UserDefaults persistence
-├── ClipboardStore.swift        # Item store, polling, AES-256-GCM encryption, PNG thumbnailing
-├── PopupWindowController.swift # NSPanel + CGEventTap keyboard intercept
-├── PopupView.swift             # SwiftUI popup UI
-├── PopupState.swift            # Shared search / selection state
-├── SettingsView.swift          # SwiftUI settings window
-├── OnboardingView.swift        # First-launch setup guide
-├── HotkeyShortcut.swift        # Hotkey model + Carbon registration
-├── HotkeyRecorderView.swift    # NSViewRepresentable hotkey recorder
-└── MenuBarIcon.swift           # Programmatic SF Symbol menu bar icon
+Copied files are stored as references, so a file clip stops working if the original is moved or deleted. A single clip is limited to 200 MB; above that, its largest formats aren't kept.
+
+## Development
+
+```bash
+swift build
+swift test
 ```
 
-<details>
-<summary><strong>Key design decisions</strong></summary>
-
-**`NSPanel` with `.nonactivatingPanel`**  
-The popup becomes the key window (so SwiftUI buttons receive clicks) without ever activating the app. The previously focused app keeps its text cursor throughout — Cmd+V fires straight into it after paste.
-
-**Session-level `CGEventTap`**  
-Keyboard events are intercepted at the OS session level while the popup is visible, routing them to search and navigation without stealing focus from the source app.
-
-**`@Observable` + `@Bindable`**  
-Modern Swift observation macros throughout — no `@StateObject` or `@ObservedObject`.
-
-**AES-256-GCM encrypted storage**  
-History is saved as `history.json.enc` — a single AES-GCM sealed box. A 256-bit key is generated on first launch and stored in the Keychain with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`. Saves are debounced (1 s) so clipboard bursts produce a single write.
-
-**Sensitive data protection**  
-Before recording any clipboard event, the store checks for `org.nspasteboard.ConcealedType` — the standard pasteboard type that 1Password and other credential managers set. Items carrying it are silently dropped.
-
-**Image thumbnailing**  
-Clipboard images (screenshots, browser copies, Finder files) are downscaled to ≤ 480 px PNG at capture time using `NSImage(size:flipped:drawingHandler:)`, which forces lazy clipboard images that report `size=(0,0)` to render before sampling. Decoded `NSImage` instances are cached in `NSCache` keyed by item UUID to avoid re-inflating PNG bytes on every render pass.
-
-</details>
-
----
-
-## Contributing
-
-Issues and pull requests are welcome.  
-Please **open an issue first** before starting any large change so we can discuss the approach.
-
----
+Use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` if `xcode-select` points at the Command Line Tools.
 
 ## License
 
-[MIT](LICENSE) © 2026 weiykong
+[MIT](LICENSE), © 2026 weiykong.

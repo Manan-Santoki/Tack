@@ -1,185 +1,36 @@
-import AppKit
 import SwiftUI
 
 struct OnboardingView: View {
     @Bindable var settings: AppSettings
-    var onDone: () -> Void
-
-    @State private var axGranted = AXIsProcessTrusted()
+    let onDone: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            steps
-            footer
-        }
-        .frame(width: 500)
-        .background {
-            VisualEffectView(material: .hudWindow, blendingMode: .behindWindow)
-                .ignoresSafeArea()
-        }
-        .task {
-            while !axGranted {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                axGranted = AXIsProcessTrusted()
+        Form {
+            Section {
+                AccessibilityStatusRow()
+            } footer: {
+                Text("Lets ClipHistory paste for you and open at your text cursor.")
             }
-        }
-    }
 
-    // MARK: - Header
-
-    private var header: some View {
-        VStack(spacing: 6) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 5)
-                .padding(.bottom, 4)
-
-            Text("Set up ClipHistory")
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-            Text("Three simple steps to clipboard mastery.")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary.opacity(0.7))
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 32)
-        .padding(.bottom, 24)
-    }
-
-    // MARK: - Setup steps
-
-    private var steps: some View {
-        VStack(spacing: 14) {
-            accessibilityCard
-            launchAtLoginCard
-            shortcutCard
-        }
-        .padding(.horizontal, 24)
-    }
-
-    private var accessibilityCard: some View {
-        SetupCard(icon: "hand.raised.fill",
-                  iconColor: axGranted ? .green : .orange,
-                  title: "Accessibility",
-                  subtitle: "Required to paste clips directly into your active apps.") {
-            VStack(alignment: .trailing, spacing: 8) {
-                statusBadge(text: axGranted ? "Granted" : "Required",
-                            color: axGranted ? .green : .orange)
-
-                if !axGranted {
-                    Button {
-                        NSWorkspace.shared.open(
-                            URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-                        )
-                    } label: {
-                        Label("Grant", systemImage: "arrow.up.right.square")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .controlSize(.small)
+            Section {
+                HStack {
+                    Text("Shortcut")
+                    Spacer()
+                    HotkeyRecorder(hotkey: $settings.hotkey)
                 }
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: axGranted)
-    }
-
-    private var launchAtLoginCard: some View {
-        SetupCard(icon: "power.circle.fill",
-                  iconColor: .accentColor,
-                  title: "Auto Launch",
-                  subtitle: "Start ClipHistory automatically when you log in.") {
-            Toggle("", isOn: $settings.launchAtLogin)
-                .toggleStyle(.switch)
-                .labelsHidden()
-        }
-    }
-
-    private var shortcutCard: some View {
-        SetupCard(icon: "command.circle.fill",
-                  iconColor: .blue,
-                  title: "Shortcut",
-                  subtitle: "The key combination to show your clipboard history.") {
-            Text(settings.hotkey.displayString)
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(.primary.opacity(0.8))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-        }
-    }
-
-    // MARK: - Footer
-
-    private var footer: some View {
-        HStack(spacing: 16) {
-            Text(axGranted
-                 ? "You're all set! Enjoy your new clipboard power."
-                 : "You can finish now and grant access later in Settings.")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary.opacity(0.6))
-                .fixedSize(horizontal: false, vertical: true)
-
-            Spacer()
-
-            Button("Get Started") { onDone() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .keyboardShortcut(.return)
-                .tint(.accentColor)
-        }
-        .padding(24)
-        .padding(.bottom, 8)
-    }
-
-    private func statusBadge(text: String, color: Color) -> some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-            Text(text)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
-// MARK: - Setup card
-
-private struct SetupCard<Accessory: View>: View {
-    let icon: String
-    let iconColor: Color
-    let title: String
-    let subtitle: String
-    @ViewBuilder let accessory: () -> Accessory
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 14) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(iconColor)
-                .frame(width: 38, height: 38)
-                .background(iconColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary.opacity(0.7))
-                    .fixedSize(horizontal: false, vertical: true)
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+        .frame(width: 420, height: 196)
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Spacer()
+                Button("Done", action: onDone)
+                    .keyboardShortcut(.defaultAction)
             }
-
-            Spacer(minLength: 12)
-
-            accessory()
+            .padding(16)
         }
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.panelRadius))
     }
 }
