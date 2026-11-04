@@ -41,7 +41,6 @@ Press a shortcut, and your history opens right where you're typing. Pick a clip,
    xattr -d com.apple.quarantine /Applications/Tack.app
    ```
 3. Open Tack and allow it under System Settings → Privacy & Security → Accessibility. It needs this to paste for you and to find the text cursor.
-4. If a Keychain prompt appears, click **Always Allow**. Tack keeps its encryption key there.
 
 You only do this once. Tack updates itself, and keeps its permissions when it does. You can turn that off in Settings.
 

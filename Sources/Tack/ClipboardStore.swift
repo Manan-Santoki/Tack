@@ -1,7 +1,6 @@
 import AppKit
 import CryptoKit
 import Observation
-import Security
 
 // MARK: - Source app
 
@@ -91,9 +90,9 @@ final class ClipboardStore {
     private var indexURL: URL { directory.appendingPathComponent("index.enc") }
 
     init(maxCount: Int, directory: URL = ClipboardStore.defaultDirectory, key: SymmetricKey? = nil) {
-        // If the Keychain refuses the key, run from a temporary folder until the next
+        // If the key can't be loaded, run from a temporary folder until the next
         // launch. The saved history can't be read, but it stays intact for when it can.
-        let resolvedKey = key ?? ClipboardStore.loadOrCreateKey()
+        let resolvedKey = key ?? HistoryKey.loadOrCreate(in: directory)
         let directory = resolvedKey == nil
             ? FileManager.default.temporaryDirectory.appendingPathComponent("Tack-\(UUID().uuidString)")
             : directory
@@ -419,62 +418,5 @@ final class ClipboardStore {
               let box = try? AES.GCM.SealedBox(combined: sealed)
         else { return nil }
         return try? AES.GCM.open(box, using: key)
-    }
-
-    // MARK: - Keychain
-
-    /// Returns nil when a key exists but the Keychain won't release it, for example when denied.
-    private nonisolated static func loadOrCreateKey() -> SymmetricKey? {
-        let query: [CFString: Any] = [
-            kSecClass: kSecClassGenericPassword,
-            kSecAttrService: "io.github.manan-santoki.tack",
-            kSecAttrAccount: "history-encryption-key",
-        ]
-
-        switch readKey(query) {
-        case .found(let key): return key
-        case .denied: return nil
-        case .missing: break
-        }
-
-        // History moved over from ClipHistory is still encrypted with its key.
-        var legacyQuery = query
-        legacyQuery[kSecAttrService] = LegacyMigration.keychainService
-        let legacy = readKey(legacyQuery)
-        if case .denied = legacy { return nil }
-        if case .found(let key) = legacy {
-            store(key, query: query)
-            return key
-        }
-
-        let key = SymmetricKey(size: .bits256)
-        store(key, query: query)
-        return key
-    }
-
-    private enum KeyLookup {
-        case found(SymmetricKey), missing, denied
-    }
-
-    private nonisolated static func readKey(_ query: [CFString: Any]) -> KeyLookup {
-        var lookup = query
-        lookup[kSecReturnData] = true
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(lookup as CFDictionary, &result)
-        if status == errSecSuccess, let data = result as? Data, data.count == 32 {
-            return .found(SymmetricKey(data: data))
-        }
-        guard status == errSecItemNotFound else {
-            NSLog("Tack: Keychain denied the history key: \(status)")
-            return .denied
-        }
-        return .missing
-    }
-
-    private nonisolated static func store(_ key: SymmetricKey, query: [CFString: Any]) {
-        var add = query
-        add[kSecValueData] = key.withUnsafeBytes { Data($0) }
-        add[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
     }
 }

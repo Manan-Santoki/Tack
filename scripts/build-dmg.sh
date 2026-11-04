@@ -89,7 +89,7 @@ PLIST
 
 # ── 4. Ad-hoc code sign ───────────────────────────────────────────────────────
 # Releases set TACK_SIGN_IDENTITY to the project's certificate. Otherwise use an Apple
-# Development one if available: a stable identity keeps Accessibility and Keychain approvals
+# Development one if available: a stable identity keeps the Accessibility approval
 # across rebuilds, while an ad-hoc signature looks like a new app to macOS every time.
 IDENTITY="${TACK_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)}"
 echo "▸ Code signing (${IDENTITY:-ad-hoc})…"

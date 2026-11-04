@@ -717,6 +717,53 @@ private func redPixelWidth(in host: NSView) throws -> CGFloat? {
     return CGFloat(maxX - minX + 1) / scale
 }
 
+// MARK: - History key
+
+private func raw(_ key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) } }
+
+@Test func newKeyIsSavedPrivatelyAndReused() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let first = try #require(HistoryKey.loadOrCreate(in: directory, earlierKey: { .missing }))
+    let second = try #require(HistoryKey.loadOrCreate(in: directory, earlierKey: {
+        Issue.record("the Keychain shouldn't be touched once the key file exists")
+        return .denied
+    }))
+    #expect(raw(first) == raw(second))
+
+    let file = directory.appendingPathComponent("history.key")
+    let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+    #expect((attributes[.posixPermissions] as? Int) == 0o600)
+    #expect(try file.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+}
+
+@Test func keyFromTheKeychainMovesToTheFile() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let earlier = SymmetricKey(size: .bits256)
+    let moved = try #require(HistoryKey.loadOrCreate(in: directory, earlierKey: { .found(earlier) }))
+    #expect(raw(moved) == raw(earlier))
+    let again = try #require(HistoryKey.loadOrCreate(in: directory, earlierKey: { .missing }))
+    #expect(raw(again) == raw(earlier))
+}
+
+@Test func deniedKeychainDoesNotCreateANewKey() {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    #expect(HistoryKey.loadOrCreate(in: directory, earlierKey: { .denied }) == nil)
+    #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("history.key").path))
+}
+
+@Test func damagedKeyFileIsNotReplaced() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let file = directory.appendingPathComponent("history.key")
+    try Data([1, 2, 3]).write(to: file)
+    #expect(HistoryKey.loadOrCreate(in: directory, earlierKey: { .missing }) == nil)
+    #expect(try Data(contentsOf: file) == Data([1, 2, 3]))
+}
+
 // MARK: - Updates
 
 private func run(_ path: String, _ arguments: [String]) throws -> Int32 {

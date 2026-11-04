@@ -14,7 +14,7 @@ bash scripts/build-dmg.sh   # creates dist/Tack.app and dist/Tack.dmg
 
 ## Signing while developing
 
-macOS ties Accessibility and Keychain approvals to an app's signature. With an ad-hoc signature, every rebuild looks like a new app and has to be approved again.
+macOS ties the Accessibility approval to an app's signature. With an ad-hoc signature, every rebuild looks like a new app and has to be approved again.
 
 To avoid that, add your Apple ID under Xcode → Settings → Accounts and create an Apple Development certificate. `build-dmg.sh` uses it automatically.
 
@@ -41,7 +41,7 @@ The script runs the tests, then tags and pushes the version. The release workflo
 
 Every release is signed with one self-made certificate, stored in the `TACK_SIGNING_P12_BASE64` and `TACK_SIGNING_P12_PASSWORD` repository secrets. It doesn't need an Apple Developer account.
 
-Keeping the same certificate is what makes updates work. macOS keeps Accessibility and Keychain approvals across versions, and Tack refuses any update signed with a different certificate. The release fails if the app isn't signed with the certificate recorded in `release.yml`.
+Keeping the same certificate is what makes updates work. macOS keeps the Accessibility approval across versions, and Tack refuses any update signed with a different certificate. The release fails if the app isn't signed with the certificate recorded in `release.yml`.
 
 Don't lose or replace it. A new certificate would mean every user has to reinstall Tack by hand and approve it again.
 
