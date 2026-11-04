@@ -25,6 +25,7 @@ Press a shortcut, and your history opens right where you're typing. Pick a clip,
 - **Opens where you're typing:** at the text cursor, or the focused field or mouse pointer in apps that don't report their cursor.
 - **Keeps the original:** images stay full resolution, and rich text and multiple files stay intact. Every format is saved byte for byte.
 - **Knows what you copied:** links, email addresses and code are detected, and searching "link" or "code" finds them.
+- **Search that forgives:** finds letters in order and typos, searches the whole clip, and reads the text in images, all on your Mac.
 - **List or grid:** list favours text, grid favours image previews.
 - **Pins:** pinned clips stay at the top and are never removed by the history limit.
 - **Private:** history is encrypted and stays on your Mac. Passwords are skipped by default.

@@ -409,6 +409,192 @@ func leavesPlainTextAlone(text: String) {
     #expect(target.string(forType: .string) == "  https://example.com/a  ")
 }
 
+// MARK: - Search
+
+private func fuzzyMatches(_ query: String, _ text: String, typos: Bool = false) -> Bool {
+    FuzzySearch.score(tokens: FuzzySearch.tokens(in: query), in: FuzzySearch.fold(text), allowTypos: typos) != nil
+}
+
+@Test(arguments: [
+    ("gtst", "git status"),
+    ("STATUS", "git status"),
+    ("resume", "Résumé final"),
+    ("clipbrd", "clipboard manager"),
+    ("status git", "git status"),
+])
+func findsLettersInOrder(query: String, text: String) {
+    #expect(fuzzyMatches(query, text))
+}
+
+@Test(arguments: [
+    ("zzzz", "git status"),
+    ("stg", "git status"),
+    ("git zebra", "git status"),
+    ("ab", "a long way to b"),
+])
+func rejectsPoorMatches(query: String, text: String) {
+    #expect(!fuzzyMatches(query, text))
+}
+
+@Test(arguments: [("stauts", "git status"), ("recieve", "please receive this"), ("swtich", "network switch")])
+func typosMatchOnlyWhenAllowed(query: String, text: String) {
+    #expect(!fuzzyMatches(query, text))
+    #expect(fuzzyMatches(query, text, typos: true))
+}
+
+@MainActor
+private func makeStore(with texts: [String], key: SymmetricKey = SymmetricKey(size: .bits256), in directory: URL) -> ClipboardStore {
+    let store = ClipboardStore(maxCount: 1000, directory: directory, key: key)
+    let pasteboard = makePasteboard()
+    for text in texts {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        store.capture(from: pasteboard)
+    }
+    return store
+}
+
+@MainActor
+@Test func bestMatchesComeFirst() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    // The loosest match is copied last, so plain recency would put it first.
+    let store = makeStore(with: ["my status report", "unstatused", "s t a t u s x"], in: directory)
+    let results = store.filtered(query: "status").map(\.kind)
+    #expect(results.first == .text("my status report"))
+    #expect(results.contains(.text("unstatused")))
+}
+
+@MainActor
+@Test func typoSearchFindsClipWhenNothingElseMatches() {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = makeStore(with: ["git status", "unrelated words"], in: directory)
+    #expect(store.filtered(query: "stauts").map(\.kind) == [.text("git status")])
+}
+
+@MainActor
+@Test func wholeClipIsSearchableAndStaysEncrypted() async throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let key = SymmetricKey(size: .bits256)
+    let marker = "deepmarkerword"
+    let long = String(repeating: "filler text ", count: 20_000) + marker
+
+    let store = makeStore(with: [long], key: key, in: directory)
+    #expect(store.filtered(query: marker).count == 1)
+    store.saveNow()
+
+    let reopened = ClipboardStore(maxCount: 10, directory: directory, key: key)
+    await reopened.finishIndexing()
+    #expect(reopened.filtered(query: marker).count == 1)
+
+    let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []
+    #expect(files.contains { $0.path.contains("/search/") })
+    for file in files where file.pathExtension == "enc" {
+        #expect(try Data(contentsOf: file).range(of: Data(marker.utf8)) == nil)
+    }
+}
+
+@MainActor
+@Test func clipsSavedBeforeSearchFilesExistGetIndexed() async throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let key = SymmetricKey(size: .bits256)
+    let marker = "olderclipmarker"
+    let store = makeStore(with: [String(repeating: "padding ", count: 1000) + marker], key: key, in: directory)
+    store.saveNow()
+    try FileManager.default.removeItem(at: directory.appendingPathComponent("search"))
+
+    let reopened = ClipboardStore(maxCount: 10, directory: directory, key: key)
+    await reopened.finishIndexing()
+    #expect(reopened.filtered(query: marker).count == 1)
+}
+
+@MainActor
+@Test func deletingAClipRemovesItsSearchFile() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let store = makeStore(with: ["goes away"], in: directory)
+    store.remove(id: try #require(store.items.first).id)
+    store.saveNow()
+    let search = directory.appendingPathComponent("search")
+    #expect(try FileManager.default.contentsOfDirectory(atPath: search.path).isEmpty)
+    #expect(store.filtered(query: "goes").isEmpty)
+}
+
+private func makeImageWithText(_ text: String) throws -> Data {
+    let image = NSImage(size: NSSize(width: 1200, height: 300), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        (text as NSString).draw(at: NSPoint(x: 60, y: 90), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 96, weight: .bold),
+            .foregroundColor: NSColor.black,
+        ])
+        return true
+    }
+    let tiff = try #require(image.tiffRepresentation)
+    return try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+}
+
+@MainActor
+@Test func imagesAreSearchableByTheirText() async throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let key = SymmetricKey(size: .bits256)
+    let source = makePasteboard()
+    source.clearContents()
+    source.setData(try makeImageWithText("INVOICE 4821"), forType: .png)
+
+    let store = ClipboardStore(maxCount: 10, directory: directory, key: key)
+    store.capture(from: source)
+    #expect(store.filtered(query: "invoice").isEmpty)
+    await store.finishIndexing()
+    #expect(store.filtered(query: "invoice").count == 1)
+    #expect(store.filtered(query: "4821").count == 1)
+    store.saveNow()
+
+    let reopened = ClipboardStore(maxCount: 10, directory: directory, key: key)
+    await reopened.finishIndexing()
+    #expect(reopened.filtered(query: "invoice").map(\.isImage) == [true])
+}
+
+@MainActor
+@Test func recognizedTextDoesNotChangeThePastedImage() async throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let png = try makeImageWithText("RECEIPT")
+    let source = makePasteboard()
+    source.clearContents()
+    source.setData(png, forType: .png)
+
+    let store = ClipboardStore(maxCount: 10, directory: directory, key: SymmetricKey(size: .bits256))
+    store.capture(from: source)
+    await store.finishIndexing()
+
+    let target = makePasteboard()
+    store.restore(try #require(store.items.first), to: target)
+    #expect(target.data(forType: .png) == png)
+    #expect(target.string(forType: .string) == nil)
+}
+
+@MainActor
+@Test func searchStaysFastAcrossAFullHistory() {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let body = String(repeating: "the quick brown fox jumps over the lazy dog ", count: 90)
+    let store = makeStore(with: (0..<500).map { "\($0) \(body)" }, in: directory)
+    #expect(store.items.count == 500)
+
+    for query in ["jmps", "qzxv nothing", "stauts lazzy", "brown fox"] {
+        let started = ContinuousClock.now
+        _ = store.filtered(query: query)
+        let elapsed = started.duration(to: .now)
+        print("search-timing \(query): \(elapsed)")
+        #expect(elapsed < .seconds(5))
+    }
+}
+
 // MARK: - Popup layout
 
 @MainActor

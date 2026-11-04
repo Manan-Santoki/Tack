@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import ImageIO
 import UniformTypeIdentifiers
+import Vision
 
 /// One format of one pasteboard item, byte for byte as the source app wrote it.
 struct ClipRepresentation: Codable, Equatable, Sendable {
@@ -118,17 +119,44 @@ struct ClipPayload: Codable, Equatable, Sendable {
         allRepresentations.first { UTType($0.type)?.conforms(to: .image) == true }
     }
 
+    private var imageSource: CGImageSource? {
+        if let image = imageRepresentation {
+            return CGImageSourceCreateWithData(image.data as CFData, nil)
+        }
+        if let url = fileURLs.first(where: { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }) {
+            return CGImageSourceCreateWithURL(url as CFURL, nil)
+        }
+        return nil
+    }
+
+    /// Images without any text of their own get searchable text from text recognition.
+    var needsTextRecognition: Bool {
+        let hasText = plainText?.contains { !$0.isWhitespace } == true
+        return !hasText && imageSource != nil
+    }
+
+    /// Reads the text in the image, on this Mac. Slow, so call it off the main thread.
+    func recognizedText(maxPixelSize: Int = 3000) -> String? {
+        guard let source = imageSource,
+              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,
+                  kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+              ] as CFDictionary)
+        else { return nil }
+
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.automaticallyDetectsLanguage = true
+        guard (try? VNImageRequestHandler(cgImage: image).perform([request])) != nil else { return nil }
+
+        let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
     /// A small PNG for the list row. The original bytes stay in the payload.
     func makeThumbnail(maxPixelSize: Int = 256) -> Data? {
-        let source: CGImageSource?
-        if let image = imageRepresentation {
-            source = CGImageSourceCreateWithData(image.data as CFData, nil)
-        } else if let url = fileURLs.first(where: { UTType(filenameExtension: $0.pathExtension)?.conforms(to: .image) == true }) {
-            source = CGImageSourceCreateWithURL(url as CFURL, nil)
-        } else {
-            source = nil
-        }
-        guard let source else { return nil }
+        guard let source = imageSource else { return nil }
 
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

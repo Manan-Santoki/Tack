@@ -62,7 +62,17 @@ struct ClipItem: Identifiable, Codable, Equatable, Sendable {
 @MainActor
 @Observable
 final class ClipboardStore {
-    private(set) var items: [ClipItem] = []
+    private(set) var items: [ClipItem] = [] {
+        didSet { lastSearch = nil }
+    }
+    /// Bumped as text arrives from background indexing, so an open popup refreshes its results.
+    private(set) var searchGeneration = 0
+
+    /// Everything searchable about each clip, kept only in memory.
+    @ObservationIgnored private var searchIndex: [UUID: [UInt16]] = [:]
+    /// The popup asks for results several times per update, so the latest search is kept.
+    @ObservationIgnored private var lastSearch: (query: String, showImages: Bool, results: [ClipItem])?
+    @ObservationIgnored private var indexingTasks: [Task<Void, Never>] = []
 
     private var maxCount: Int
     /// The change count of our own last paste, so it isn't recorded as a new copy.
@@ -72,6 +82,7 @@ final class ClipboardStore {
     private let thumbnailCache = NSCache<NSUUID, NSImage>()
     private let directory: URL
     private let blobDirectory: URL
+    private let searchDirectory: URL
     private let key: SymmetricKey
 
     // All disk access is serial, so reading a clip always sees its finished write.
@@ -90,12 +101,15 @@ final class ClipboardStore {
         self.maxCount = maxCount
         self.directory = directory
         self.blobDirectory = directory.appendingPathComponent("clips", isDirectory: true)
+        self.searchDirectory = directory.appendingPathComponent("search", isDirectory: true)
         self.key = resolvedKey ?? SymmetricKey(size: .bits256)
-        try? FileManager.default.createDirectory(
-            at: blobDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
+        for folder in [blobDirectory, searchDirectory] {
+            try? FileManager.default.createDirectory(
+                at: folder,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        }
         load()
     }
 
@@ -121,6 +135,7 @@ final class ClipboardStore {
             item.classify()
             items.insert(item, at: 0)
             writeBlob(payload, id: item.id)
+            index(item, payload: payload)
         }
         pinnedFirst()
         trimToLimit()
@@ -178,13 +193,41 @@ final class ClipboardStore {
 
     // MARK: - Reading
 
+    /// With a search, the best matches come first. Without one, the list keeps its usual order.
     func filtered(query: String, showImages: Bool = true) -> [ClipItem] {
-        items.filter { item in
-            guard showImages || !item.isImage else { return false }
-            guard !query.isEmpty else { return true }
-            return item.preview.localizedCaseInsensitiveContains(query)
-                || item.sourceApp?.name.localizedCaseInsensitiveContains(query) == true
-                || item.textKind?.searchName?.localizedCaseInsensitiveCompare(query) == .orderedSame
+        _ = searchGeneration
+        let candidates = showImages ? items : items.filter { !$0.isImage }
+        let tokens = FuzzySearch.tokens(in: query)
+        guard !tokens.isEmpty else { return candidates }
+
+        if let lastSearch, lastSearch.query == query, lastSearch.showImages == showImages {
+            return lastSearch.results
+        }
+
+        var matches = rank(candidates, tokens: tokens, allowTypos: false)
+        // Typo matching is slower and looser, so it's only for searches that found very little.
+        if matches.count < 3, FuzzySearch.canMatchTypos(tokens) {
+            matches = rank(candidates, tokens: tokens, allowTypos: true)
+        }
+        lastSearch = (query, showImages, matches)
+        return matches
+    }
+
+    private func rank(_ candidates: [ClipItem], tokens: [[UInt16]], allowTypos: Bool) -> [ClipItem] {
+        candidates.enumerated()
+            .compactMap { position, item -> (item: ClipItem, score: Int, position: Int)? in
+                let text = searchIndex[item.id] ?? searchKey(for: item, text: nil)
+                guard let score = FuzzySearch.score(tokens: tokens, in: text, allowTypos: allowTypos) else { return nil }
+                return (item, score, position)
+            }
+            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.position < $1.position }
+            .map(\.item)
+    }
+
+    /// Resolves once all text recognition and loading of searchable text has finished.
+    func finishIndexing() async {
+        while let task = indexingTasks.popLast() {
+            await task.value
         }
     }
 
@@ -216,8 +259,72 @@ final class ClipboardStore {
 
     private func forget(_ item: ClipItem) {
         thumbnailCache.removeObject(forKey: item.id as NSUUID)
-        let url = blobURL(id: item.id)
-        diskQueue.async { try? FileManager.default.removeItem(at: url) }
+        searchIndex[item.id] = nil
+        let urls = [blobURL(id: item.id), searchURL(id: item.id)]
+        diskQueue.async {
+            for url in urls { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    // MARK: - Search index
+
+    private func searchURL(id: UUID) -> URL {
+        searchDirectory.appendingPathComponent(id.uuidString + ".enc")
+    }
+
+    private func searchKey(for item: ClipItem, text: String?) -> [UInt16] {
+        let parts = [text ?? item.preview, text == nil ? nil : item.preview, item.sourceApp?.name, item.textKind?.searchName]
+        return FuzzySearch.fold(parts.compactMap { $0 }.joined(separator: "\n"))
+    }
+
+    /// Makes a new clip searchable: its text right away, the text in an image once it's been read.
+    private func index(_ item: ClipItem, payload: ClipPayload) {
+        guard payload.needsTextRecognition else {
+            applySearchText(payload.plainText ?? "", to: item.id)
+            return
+        }
+        searchIndex[item.id] = searchKey(for: item, text: nil)
+        let id = item.id
+        indexingTasks.append(Task.detached(priority: .utility) { [weak self] in
+            let text = payload.recognizedText() ?? ""
+            await self?.applySearchText(text, to: id)
+        })
+    }
+
+    private func applySearchText(_ text: String, to id: UUID, persist: Bool = true) {
+        guard let item = items.first(where: { $0.id == id }) else { return }
+        searchIndex[id] = searchKey(for: item, text: text.isEmpty ? nil : text)
+        lastSearch = nil
+        searchGeneration &+= 1
+
+        guard persist else { return }
+        let url = searchURL(id: id)
+        let key = key
+        diskQueue.async { Self.seal(Data(text.utf8), key: key, to: url) }
+    }
+
+    /// Loads searchable text for saved clips, working it out for any clip that doesn't have it yet.
+    private func loadSearchIndex() {
+        for item in items {
+            searchIndex[item.id] = searchKey(for: item, text: nil)
+        }
+        let saved = items.map(\.id)
+        let searchDirectory = searchDirectory
+        let blobDirectory = blobDirectory
+        let key = key
+        indexingTasks.append(Task.detached(priority: .utility) { [weak self] in
+            for id in saved {
+                let name = id.uuidString + ".enc"
+                if let data = Self.open(searchDirectory.appendingPathComponent(name), key: key) {
+                    let text = String(decoding: data, as: UTF8.self)
+                    await self?.applySearchText(text, to: id, persist: false)
+                } else if let plain = Self.open(blobDirectory.appendingPathComponent(name), key: key),
+                          let payload = try? PropertyListDecoder().decode(ClipPayload.self, from: plain) {
+                    let text = payload.needsTextRecognition ? payload.recognizedText() : payload.plainText
+                    await self?.applySearchText(text ?? "", to: id)
+                }
+            }
+        })
     }
 
     // MARK: - Clip files
@@ -285,14 +392,17 @@ final class ClipboardStore {
             }
         }
         removeOrphanedBlobs()
+        loadSearchIndex()
     }
 
     /// Clip files with no index entry are left over from a crash before the index saved.
     private func removeOrphanedBlobs() {
         let known = Set(items.map(\.id.uuidString))
-        let files = (try? FileManager.default.contentsOfDirectory(at: blobDirectory, includingPropertiesForKeys: nil)) ?? []
-        for file in files where !known.contains(file.deletingPathExtension().lastPathComponent) {
-            try? FileManager.default.removeItem(at: file)
+        for folder in [blobDirectory, searchDirectory] {
+            let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+            for file in files where !known.contains(file.deletingPathExtension().lastPathComponent) {
+                try? FileManager.default.removeItem(at: file)
+            }
         }
     }
 

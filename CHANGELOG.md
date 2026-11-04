@@ -4,6 +4,15 @@ Notable changes to Tack. The format follows [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- Fuzzy search: letters in order (`gtst` finds `git status`) and typos (`stauts` finds `status`), with the best matches first.
+- Images are searchable by the text in them, read on your Mac with Apple's Vision framework.
+
+### Changed
+
+- Search covers the whole clip rather than its first 4,096 characters. Existing clips are indexed automatically.
+
 ## [2.0.2] - 2026-11-03
 
 ### Fixed
