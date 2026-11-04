@@ -287,6 +287,87 @@ private let popup = CGSize(width: 360, height: 400)
     #expect(rect == NSRect(x: 10, y: 764, width: 5, height: 16))
 }
 
+// MARK: - Detection
+
+@Test(arguments: [
+    "https://www.instagram.com/p/DfQV6ZgiAua/?rpxt=abc",
+    "http://localhost:3000/health",
+    "www.example.com",
+    "example.com",
+    "github.com/Manan-Santoki/ClipHistory",
+    "  https://example.com  \n",
+])
+func detectsLinks(text: String) {
+    #expect(TextClassifier.classify(text) == .link)
+}
+
+@Test func detectsEmail() {
+    #expect(TextClassifier.classify("someone@example.com") == .email)
+}
+
+@Test(arguments: [
+    "let total = items.count",
+    "import Foundation",
+    "func add(a: Int) -> Int {\n    return a + 1;\n}",
+    "def main():\n    print(\"hi\")",
+    "const x = () => 1;",
+    "{\"name\": \"clip\", \"count\": 2}",
+    "[1, 2, 3]",
+    "git status",
+    "npm install react",
+    "$ ls -la",
+    "SELECT id FROM users WHERE id = 1",
+    "<div class=\"row\">hello</div>",
+])
+func detectsCode(text: String) {
+    #expect(TextClassifier.classify(text) == .code)
+}
+
+@Test(arguments: [
+    "CLIPTEST plain text for search",
+    "Hello, how are you?",
+    "I think we should import more coffee.",
+    "Let me know if that works for you",
+    "Return the form by Friday",
+    "For example, see the notes below.",
+    "main.py",
+    "README.md",
+    "Dear team,\nPlease review the attached notes.\nThanks,\nSam",
+    "Version 2 is out (finally)",
+    "",
+])
+func leavesPlainTextAlone(text: String) {
+    #expect(TextClassifier.classify(text) == .plain)
+}
+
+@Test func bareLinkOpensOverHTTPS() {
+    #expect(TextClassifier.url(for: "example.com", kind: .link)?.absoluteString == "https://example.com")
+    #expect(TextClassifier.url(for: "http://a.com", kind: .link)?.absoluteString == "http://a.com")
+    #expect(TextClassifier.url(for: "a@b.com", kind: .email)?.absoluteString == "mailto:a@b.com")
+    #expect(TextClassifier.url(for: "hello", kind: .plain) == nil)
+}
+
+@MainActor
+@Test func searchFindsClipsByTypeAndPasteIsUnchanged() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let pasteboard = makePasteboard()
+    let store = ClipboardStore(maxCount: 10, directory: directory, key: SymmetricKey(size: .bits256))
+
+    for text in ["  https://example.com/a  ", "let x = 1", "just words"] {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        store.capture(from: pasteboard)
+    }
+    #expect(store.filtered(query: "code").map(\.textKind) == [.code])
+    #expect(store.filtered(query: "link").map(\.textKind) == [.link])
+
+    let link = try #require(store.filtered(query: "link").first)
+    let target = makePasteboard()
+    store.restore(link, to: target)
+    #expect(target.string(forType: .string) == "  https://example.com/a  ")
+}
+
 // MARK: - Settings
 
 @MainActor

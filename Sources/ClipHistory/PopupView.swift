@@ -132,7 +132,7 @@ struct PopupView: View {
             HStack(spacing: 10) {
                 icon(for: item)
 
-                Text(item.preview)
+                previewText(item)
                     .lineLimit(2)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -166,8 +166,7 @@ struct PopupView: View {
                                 .aspectRatio(contentMode: .fill)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            Text(item.preview)
-                                .font(.caption)
+                            previewText(item, size: NSFont.smallSystemFontSize)
                                 .lineLimit(5)
                                 .padding(4)
                         }
@@ -175,6 +174,11 @@ struct PopupView: View {
                     .clipShape(.rect(cornerRadius: 6))
 
                 HStack(spacing: 4) {
+                    if let symbol = typeSymbol(for: item) {
+                        Image(systemName: symbol)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     if item.pinned {
                         Image(systemName: "pin.fill")
                             .font(.caption2)
@@ -217,6 +221,11 @@ struct PopupView: View {
         .contextMenu {
             Button("Paste") { onPaste(item, false) }
             Button("Paste as Plain Text") { onPaste(item, true) }
+            if let url = item.linkURL {
+                Button(item.textKind == .email ? "New Email" : "Open Link") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
             Divider()
             Button(item.pinned ? "Unpin" : "Pin") { onTogglePin(item) }
             Button("Delete", role: .destructive) { onRemove(item) }
@@ -231,6 +240,10 @@ struct PopupView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .clipShape(.rect(cornerRadius: 4))
+            } else if let symbol = typeSymbol(for: item) {
+                Image(systemName: symbol)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(item.textKind?.rawValue ?? "")
             } else if let appIcon = item.sourceApp?.icon {
                 Image(nsImage: appIcon).resizable()
             } else {
@@ -238,6 +251,26 @@ struct PopupView: View {
             }
         }
         .frame(width: 22, height: 22)
+    }
+
+    private func typeSymbol(for item: ClipItem) -> String? {
+        switch item.textKind {
+        case .link: "link"
+        case .email: "envelope"
+        case .code: "chevron.left.forwardslash.chevron.right"
+        case .plain, nil: nil
+        }
+    }
+
+    private func previewText(_ item: ClipItem, size: CGFloat = NSFont.systemFontSize) -> Text {
+        switch item.textKind {
+        case .code:
+            Text(item.preview).font(.system(size: size, design: .monospaced))
+        case .link, .email:
+            Text(item.preview).font(.system(size: size)).foregroundStyle(.link)
+        case .plain, nil:
+            Text(item.preview).font(.system(size: size))
+        }
     }
 
     private func shortAge(_ date: Date) -> String {

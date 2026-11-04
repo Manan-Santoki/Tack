@@ -11,6 +11,7 @@ This is a fork of [weiykong/ClipHistory](https://github.com/weiykong/ClipHistory
 - **Native UI:** Liquid Glass popup, grouped settings form, `MenuBarExtra`, and a standard search field.
 - **No keyboard interception:** the popup takes focus directly, so there's no global event tap.
 - **Pins are permanent:** they never get evicted by newer clips.
+- **Knows what you copied:** links, email addresses and code are detected and shown differently, and searching "link" or "code" finds them. What gets pasted is never changed.
 - **List or grid:** list favours text, grid favours image previews.
 - **Your choice on other devices:** record or ignore clips arriving from your iPhone through Universal Clipboard.
 

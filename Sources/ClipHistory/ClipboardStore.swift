@@ -32,6 +32,18 @@ struct ClipItem: Identifiable, Codable, Equatable, Sendable {
     var date = Date.now
     var sourceApp: SourceApp?
     var pinned = false
+    /// Nil for clips that aren't text.
+    var textKind: TextKind?
+
+    /// The address behind a link or email clip.
+    var linkURL: URL? {
+        guard case .text(let text) = kind, let textKind else { return nil }
+        return TextClassifier.url(for: text, kind: textKind)
+    }
+
+    mutating func classify() {
+        if case .text(let text) = kind { textKind = TextClassifier.classify(text) }
+    }
 
     var preview: String {
         switch kind {
@@ -105,7 +117,8 @@ final class ClipboardStore {
             items[index].date = .now
             items.insert(items.remove(at: index), at: 0)
         } else {
-            let item = ClipItem(kind: kind, thumbnail: payload.makeThumbnail(), contentHash: hash, sourceApp: source)
+            var item = ClipItem(kind: kind, thumbnail: payload.makeThumbnail(), contentHash: hash, sourceApp: source)
+            item.classify()
             items.insert(item, at: 0)
             writeBlob(payload, id: item.id)
         }
@@ -171,6 +184,7 @@ final class ClipboardStore {
             guard !query.isEmpty else { return true }
             return item.preview.localizedCaseInsensitiveContains(query)
                 || item.sourceApp?.name.localizedCaseInsensitiveContains(query) == true
+                || item.textKind?.searchName?.localizedCaseInsensitiveCompare(query) == .orderedSame
         }
     }
 
@@ -265,6 +279,10 @@ final class ClipboardStore {
                   let saved = try? JSONDecoder().decode([ClipItem].self, from: plain)
             else { return }
             items = saved
+            // Clips saved before detection existed have no type yet.
+            for index in items.indices where items[index].textKind == nil {
+                items[index].classify()
+            }
         }
         removeOrphanedBlobs()
     }
