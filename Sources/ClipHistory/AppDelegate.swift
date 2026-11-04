@@ -138,11 +138,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The frontmost app didn't produce a clip from another device, so neither its
         // exclusion nor its name applies.
         if NSPasteboard.general.types?.contains(ClipPayload.otherDeviceType) == true {
-            if settings.recordFromOtherDevices { store.capture() }
+            if settings.recordFromOtherDevices { store.capture(includeSensitive: settings.recordSensitive) }
             return
         }
         if let bundleID = frontmostSource?.bundleID, settings.excludedBundleIDs.contains(bundleID) { return }
-        store.capture(source: frontmostSource)
+        store.capture(source: frontmostSource, includeSensitive: settings.recordSensitive)
     }
 
     // MARK: - Hotkey

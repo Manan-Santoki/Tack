@@ -35,10 +35,10 @@ struct ClipPayload: Codable, Equatable, Sendable {
         self.items = items
     }
 
-    /// Returns nil when the pasteboard is empty or asks not to be recorded.
-    init?(pasteboard: NSPasteboard) {
+    /// Returns nil when the pasteboard is empty, or asks not to be recorded and that isn't overridden.
+    init?(pasteboard: NSPasteboard, includeSensitive: Bool = false) {
         let types = pasteboard.types ?? []
-        guard !types.contains(where: { Self.ignoredTypes.contains($0.rawValue) }) else { return nil }
+        guard includeSensitive || !types.contains(where: { Self.ignoredTypes.contains($0.rawValue) }) else { return nil }
 
         var items = (pasteboard.pasteboardItems ?? []).map { item in
             item.types.compactMap { type in

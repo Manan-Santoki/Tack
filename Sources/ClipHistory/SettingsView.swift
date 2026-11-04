@@ -49,6 +49,12 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle("Record passwords and sensitive clips", isOn: $settings.recordSensitive)
+            } footer: {
+                Text("Off by default. When on, copied passwords are saved in your encrypted history and appear in the popup in plain view, and they stay until deleted or trimmed.")
+            }
+
+            Section {
                 if sourceApps.isEmpty {
                     Text("Apps appear here after you copy from them.")
                         .foregroundStyle(.secondary)
@@ -69,7 +75,7 @@ struct SettingsView: View {
             } header: {
                 Text("Record from")
             } footer: {
-                Text("Passwords marked as sensitive by their app are never recorded.")
+                Text("Copies from apps turned off here aren't recorded.")
             }
 
             Section {

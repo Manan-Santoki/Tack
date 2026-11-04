@@ -47,6 +47,11 @@ final class AppSettings {
         didSet { save() }
     }
 
+    /// Record clips that apps mark as sensitive or temporary, such as copied passwords.
+    var recordSensitive = false {
+        didSet { save() }
+    }
+
     /// Bundle IDs of apps whose copies are not recorded.
     var excludedBundleIDs: Set<String> = [] {
         didSet { save() }
@@ -72,6 +77,7 @@ final class AppSettings {
         static let rememberScrollPosition = "rememberScrollPosition"
         static let excludedBundleIDs = "excludedBundleIDs"
         static let layout = "layout"
+        static let recordSensitive = "recordSensitive"
         static let recordFromOtherDevices = "recordFromOtherDevices"
     }
 
@@ -94,6 +100,7 @@ final class AppSettings {
             layout = saved
         }
         recordFromOtherDevices = defaults.object(forKey: Keys.recordFromOtherDevices) as? Bool ?? true
+        recordSensitive = defaults.bool(forKey: Keys.recordSensitive)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -107,6 +114,7 @@ final class AppSettings {
         defaults.set(rememberScrollPosition, forKey: Keys.rememberScrollPosition)
         defaults.set(Array(excludedBundleIDs), forKey: Keys.excludedBundleIDs)
         defaults.set(layout.rawValue, forKey: Keys.layout)
+        defaults.set(recordSensitive, forKey: Keys.recordSensitive)
         defaults.set(recordFromOtherDevices, forKey: Keys.recordFromOtherDevices)
     }
 

@@ -28,107 +28,59 @@ func write(_ c: CGContext, to path: String) {
 
 // ─── app icon drawing ─────────────────────────────────────────────────────────
 //
-//  Design:
-//   • Blue (#4086F6) → Purple (#8A54F7) gradient background, rounded-square
-//   • White clipboard body with a blue top-tab
-//   • Three light-blue content lines
-//   • Purple history-badge (bottom-right) with white clock face + 10:10 hands
+//  A single white clipboard on graphite, on Apple's standard icon grid: the
+//  body takes up 824/1024 of the canvas, leaving room for the shadow.
 
 func drawAppIcon(_ c: CGContext, px: Int) {
     let s = CGFloat(px)
+    let rgb = CGColorSpaceCreateDeviceRGB()
+    let inset = s * 100 / 1024
+    let body = CGRect(x: inset, y: inset, width: s - inset * 2, height: s - inset * 2)
+    let radius = body.width * 0.2237
+    let bodyPath = CGPath(roundedRect: body, cornerWidth: radius, cornerHeight: radius, transform: nil)
 
-    // ── 1. Rounded-rect clip (macOS app-icon shape) ──────────────────────────
-    c.addPath(CGPath(roundedRect: CGRect(x: 0, y: 0, width: s, height: s),
-                     cornerWidth: s * 0.225, cornerHeight: s * 0.225,
-                     transform: nil))
+    c.saveGState()
+    c.setShadow(offset: CGSize(width: 0, height: -s * 0.012), blur: s * 0.03,
+                color: CGColor(gray: 0, alpha: 0.3))
+    c.addPath(bodyPath)
+    c.setFillColor(CGColor(gray: 0.12, alpha: 1))
+    c.fillPath()
+    c.restoreGState()
+
+    c.saveGState()
+    c.addPath(bodyPath)
     c.clip()
+    let top = CGColor(red: 0.20, green: 0.20, blue: 0.21, alpha: 1)
+    let bottom = CGColor(red: 0.09, green: 0.09, blue: 0.10, alpha: 1)
+    let gradient = CGGradient(colorsSpace: rgb, colors: [top, bottom] as CFArray, locations: [0, 1])!
+    c.drawLinearGradient(gradient, start: CGPoint(x: s / 2, y: body.maxY),
+                         end: CGPoint(x: s / 2, y: body.minY), options: [])
+    c.restoreGState()
 
-    // ── 2. Gradient background (blue top → purple bottom) ───────────────────
-    let grad = CGGradient(
-        colorsSpace: CGColorSpaceCreateDeviceRGB(),
-        colors: [CGColor(red: 0.25, green: 0.52, blue: 0.96, alpha: 1),   // #4085F5
-                 CGColor(red: 0.54, green: 0.33, blue: 0.97, alpha: 1)] as CFArray, // #8A54F7
-        locations: [0, 1])!
-    c.drawLinearGradient(grad,
-                         start: CGPoint(x: s / 2, y: s),
-                         end:   CGPoint(x: s / 2, y: 0),
-                         options: [])
-    c.resetClip()
-
-    // ── 3. Clipboard body ────────────────────────────────────────────────────
-    let m     = s * 0.175
-    let board = CGRect(x: m, y: m, width: s - m * 2, height: s - m * 2)
-    let cr    = s * 0.065
-
-    c.addPath(CGPath(roundedRect: board, cornerWidth: cr, cornerHeight: cr, transform: nil))
-    c.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+    // Board
+    let boardWidth = body.width * 0.46
+    let boardHeight = body.width * 0.58
+    let board = CGRect(x: s / 2 - boardWidth / 2, y: s / 2 - boardHeight / 2 - s * 0.015,
+                       width: boardWidth, height: boardHeight)
+    let boardRadius = boardWidth * 0.17
+    let white = CGColor(gray: 1, alpha: 1)
+    c.addPath(CGPath(roundedRect: board, cornerWidth: boardRadius, cornerHeight: boardRadius, transform: nil))
+    c.setFillColor(white)
     c.fillPath()
 
-    // ── 4. Top tab / clip ────────────────────────────────────────────────────
-    let tw  = board.width * 0.30,  th  = s * 0.082
-    let tx  = board.midX - tw / 2, ty  = board.maxY - th * 0.60
-    c.addPath(CGPath(roundedRect: CGRect(x: tx, y: ty, width: tw, height: th * 1.2),
-                     cornerWidth: th * 0.45, cornerHeight: th * 0.45, transform: nil))
-    c.setFillColor(CGColor(red: 0.25, green: 0.52, blue: 0.96, alpha: 1))
+    // Clip, set off from the board by a gap in the background colour
+    let clipWidth = boardWidth * 0.46
+    let clipHeight = boardWidth * 0.20
+    let clip = CGRect(x: board.midX - clipWidth / 2, y: board.maxY - clipHeight * 0.45,
+                      width: clipWidth, height: clipHeight)
+    let gap = boardWidth * 0.055
+    let halo = clip.insetBy(dx: -gap, dy: -gap)
+    c.addPath(CGPath(roundedRect: halo, cornerWidth: halo.height / 2, cornerHeight: halo.height / 2, transform: nil))
+    c.setFillColor(CGColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1))
     c.fillPath()
-
-    // ── 5. Content lines ─────────────────────────────────────────────────────
-    let lh   = s * 0.040
-    let lx   = board.minX + board.width * 0.13
-    let lmw  = board.width * 0.74
-    let ly0  = board.midY + lh
-    let gap  = s * 0.070
-    let lineClr = CGColor(red: 0.60, green: 0.70, blue: 0.88, alpha: 0.55)
-
-    for (i, w) in [(0, 1.00), (1, 0.85), (2, 0.52)] {
-        let ly = ly0 - CGFloat(i) * gap
-        c.addPath(CGPath(roundedRect: CGRect(x: lx, y: ly, width: lmw * w, height: lh),
-                         cornerWidth: lh / 2, cornerHeight: lh / 2, transform: nil))
-        c.setFillColor(lineClr)
-        c.fillPath()
-    }
-
-    // ── 6. History badge (circle, bottom-right of clipboard) ─────────────────
-    let bR  = s * 0.130
-    let bCx = board.maxX - bR * 0.80
-    let bCy = board.minY + bR * 0.80
-
-    // Badge circle
-    c.setFillColor(CGColor(red: 0.54, green: 0.33, blue: 0.97, alpha: 1))
-    c.fillEllipse(in: CGRect(x: bCx - bR, y: bCy - bR, width: bR * 2, height: bR * 2))
-
-    // Clock-face ring
-    let face = bR * 0.62
-    c.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.35))
-    c.setLineWidth(s * 0.013)
-    c.strokeEllipse(in: CGRect(x: bCx - face, y: bCy - face, width: face * 2, height: face * 2))
-
-    // Clock hands at 10:10 (symmetric, looks like a smile)
-    //   In CGContext (y-up): 12 o'clock = π/2, going clockwise decreases angle
-    //   10 o'clock = π/2 + 2*(π/6) = 5π/6 ≈ 150°
-    //    2 o'clock = π/2 - 2*(π/6) = π/6  ≈  30°
-    c.setStrokeColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    c.setLineWidth(s * 0.021)
-    c.setLineCap(.round)
-
-    let hourA: CGFloat = 5 * .pi / 6   // 10 o'clock
-    let minA:  CGFloat = .pi / 6        // 2 o'clock
-
-    c.move(to: CGPoint(x: bCx, y: bCy))
-    c.addLine(to: CGPoint(x: bCx + cos(hourA) * face * 0.54,
-                          y: bCy + sin(hourA) * face * 0.54))
-    c.strokePath()
-
-    c.move(to: CGPoint(x: bCx, y: bCy))
-    c.addLine(to: CGPoint(x: bCx + cos(minA) * face * 0.70,
-                          y: bCy + sin(minA) * face * 0.70))
-    c.strokePath()
-
-    // Center dot
-    let dotR = s * 0.013
-    c.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-    c.fillEllipse(in: CGRect(x: bCx - dotR, y: bCy - dotR,
-                              width: dotR * 2, height: dotR * 2))
+    c.addPath(CGPath(roundedRect: clip, cornerWidth: clip.height / 2, cornerHeight: clip.height / 2, transform: nil))
+    c.setFillColor(white)
+    c.fillPath()
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────

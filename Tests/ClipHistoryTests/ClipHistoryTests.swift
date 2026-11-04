@@ -103,6 +103,16 @@ func sensitiveClipsAreNotCaptured(marker: String) {
     #expect(ClipPayload(pasteboard: source) == nil)
 }
 
+@Test(arguments: ClipPayload.ignoredTypes)
+func sensitiveClipsAreCapturedWhenAllowed(marker: String) throws {
+    let source = makePasteboard()
+    source.clearContents()
+    source.setString("secret", forType: .string)
+    source.setData(Data(), forType: .init(marker))
+    let payload = try #require(ClipPayload(pasteboard: source, includeSensitive: true))
+    #expect(payload.kind == .text("secret"))
+}
+
 @Test func blankTextIsNotListed() throws {
     let source = makePasteboard()
     source.clearContents()
@@ -292,10 +302,12 @@ private let popup = CGSize(width: 360, height: 400)
 
     settings.layout = .grid
     settings.recordFromOtherDevices = false
+    settings.recordSensitive = true
 
     let reloaded = AppSettings(defaults: defaults)
     #expect(reloaded.layout == .grid)
     #expect(!reloaded.recordFromOtherDevices)
+    #expect(reloaded.recordSensitive)
     #expect(reloaded.maxItems == 120)
     #expect(reloaded.hideImages)
     #expect(reloaded.excludedBundleIDs == ["com.example.secret"])
@@ -309,7 +321,9 @@ private let popup = CGSize(width: 360, height: 400)
     let suite = "cliphistory.test.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
-    #expect(AppSettings(defaults: defaults).recordFromOtherDevices)
+    let settings = AppSettings(defaults: defaults)
+    #expect(settings.recordFromOtherDevices)
+    #expect(!settings.recordSensitive)
 }
 
 @Test func comparesVersionsNumerically() {

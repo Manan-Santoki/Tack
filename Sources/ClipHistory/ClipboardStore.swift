@@ -94,9 +94,9 @@ final class ClipboardStore {
 
     // MARK: - Capture
 
-    func capture(from pasteboard: NSPasteboard = .general, source: SourceApp? = nil) {
+    func capture(from pasteboard: NSPasteboard = .general, source: SourceApp? = nil, includeSensitive: Bool = false) {
         guard pasteboard.changeCount != ownChangeCount,
-              let payload = ClipPayload(pasteboard: pasteboard),
+              let payload = ClipPayload(pasteboard: pasteboard, includeSensitive: includeSensitive),
               let kind = payload.kind
         else { return }
 

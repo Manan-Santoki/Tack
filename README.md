@@ -53,7 +53,7 @@ Right-click a clip for the same actions.
 ## Privacy
 
 - History stays on your Mac, encrypted with AES-256-GCM. The key is in your Keychain.
-- Clips marked as sensitive by their app, such as passwords from a password manager, are never recorded.
+- Clips marked as sensitive by their app, such as passwords from a password manager, aren't recorded unless you turn on **Record passwords and sensitive clips** in Settings. When it's on, they appear in the popup in plain view.
 - You can turn off recording per app in Settings.
 - The only network request is a check of this repo's GitHub releases at launch.
 
