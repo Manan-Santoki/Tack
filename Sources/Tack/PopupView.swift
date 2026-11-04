@@ -240,9 +240,11 @@ struct PopupView: View {
     private func icon(for item: ClipItem) -> some View {
         Group {
             if let thumbnail = store.thumbnail(for: item) {
+                // Size it before clipping, or a wide image spills out over the text.
                 Image(nsImage: thumbnail)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .frame(width: 22, height: 22)
                     .clipShape(.rect(cornerRadius: 4))
             } else if let symbol = typeSymbol(for: item) {
                 Image(systemName: symbol)

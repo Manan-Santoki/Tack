@@ -641,6 +641,78 @@ func searchFieldStaysAtTopWithNothingToShow(query: String) throws {
     #expect(try searchFieldTopGap(query: query) < 70)
 }
 
+@MainActor
+@Test func wideThumbnailStaysInsideItsSlot() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let suite = "tack.test.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    // A pure red, very wide image, so its pixels are easy to find in the render.
+    let rep = try #require(NSBitmapImageRep(
+        bitmapDataPlanes: nil, pixelsWide: 2000, pixelsHigh: 200,
+        bitsPerSample: 8, samplesPerPixel: 3, hasAlpha: false, isPlanar: false,
+        colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+    ))
+    for x in 0..<2000 {
+        for y in 0..<200 {
+            rep.setColor(NSColor(deviceRed: 1, green: 0, blue: 0, alpha: 1), atX: x, y: y)
+        }
+    }
+    let source = makePasteboard()
+    source.clearContents()
+    source.setData(try #require(rep.representation(using: .png, properties: [:])), forType: .png)
+    let store = ClipboardStore(maxCount: 10, directory: directory, key: SymmetricKey(size: .bits256))
+    store.capture(from: source)
+
+    let host = NSHostingView(rootView: PopupView(
+        store: store,
+        settings: AppSettings(defaults: defaults),
+        state: PopupState(),
+        searchField: SearchTextField(),
+        shadowMargin: 0,
+        updateChecker: UpdateChecker(),
+        onPaste: { _, _ in },
+        onTogglePin: { _ in },
+        onRemove: { _ in }
+    ))
+    host.sizingOptions = []
+    host.frame = NSRect(x: 0, y: 0, width: 360, height: 400)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    // Rows are built lazily, so keep rendering until the image shows up.
+    var redWidth: CGFloat?
+    for _ in 0..<40 where redWidth == nil {
+        host.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        redWidth = try redPixelWidth(in: host)
+    }
+    let width = try #require(redWidth, "the thumbnail should be visible")
+    #expect(width <= 24)
+}
+
+@MainActor
+private func redPixelWidth(in host: NSView) throws -> CGFloat? {
+    let render = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+    host.cacheDisplay(in: host.bounds, to: render)
+    let scale = CGFloat(render.pixelsWide) / host.bounds.width
+
+    var minX: Int?
+    var maxX: Int?
+    for y in 0..<render.pixelsHigh {
+        for x in 0..<render.pixelsWide {
+            guard let color = render.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                  color.redComponent > 0.7, color.greenComponent < 0.45, color.blueComponent < 0.45
+            else { continue }
+            minX = min(minX ?? x, x)
+            maxX = max(maxX ?? x, x)
+        }
+    }
+    guard let minX, let maxX else { return nil }
+    return CGFloat(maxX - minX + 1) / scale
+}
+
 // MARK: - Settings
 
 @MainActor
