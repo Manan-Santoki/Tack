@@ -23,7 +23,7 @@ jobs:
           xcode-version: latest-stable
 
       - name: Test
-        run: swift test
+        run: bash scripts/test-with-retry.sh
 
       - name: Package
         run: bash scripts/build-dmg.sh

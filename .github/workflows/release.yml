@@ -38,7 +38,7 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Test
-        run: swift test
+        run: bash scripts/test-with-retry.sh
 
       - name: Extract release notes
         run: |
