@@ -1,38 +1,47 @@
-# ClipHistory
+<div align="center">
 
-A minimal, native macOS clipboard manager in the spirit of Windows + V. Press a shortcut and your history opens at your text cursor. Pick a clip and it pastes exactly as you copied it.
+<img src="docs/icon.png" width="128" height="128" alt="Tack icon" />
 
-This is a fork of [weiykong/ClipHistory](https://github.com/weiykong/ClipHistory), rebuilt with native macOS controls and full-fidelity clips.
+# Tack
 
-## What's different in this fork
+**A minimal, native clipboard manager for Mac.**
 
-- **Original formats:** every format on the clipboard is saved byte for byte, so images keep full resolution, and rich text and multiple files stay intact.
-- **Opens at the text cursor:** falls back to the focused input field, then the mouse pointer, for apps that don't report their cursor.
-- **Native UI:** Liquid Glass popup, grouped settings form, `MenuBarExtra`, and a standard search field.
-- **No keyboard interception:** the popup takes focus directly, so there's no global event tap.
-- **Pins are permanent:** they never get evicted by newer clips.
-- **Knows what you copied:** links, email addresses and code are detected and shown differently, and searching "link" or "code" finds them. What gets pasted is never changed.
+Press a shortcut, and your history opens right where you're typing. Pick a clip, and it pastes exactly as you copied it.
+
+[![CI](https://github.com/Manan-Santoki/Tack/actions/workflows/ci.yml/badge.svg)](https://github.com/Manan-Santoki/Tack/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/Manan-Santoki/Tack)](https://github.com/Manan-Santoki/Tack/releases/latest)
+[![macOS 26+](https://img.shields.io/badge/macOS-26%2B-blue)](#install)
+[![MIT License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+[**Download for Mac**](https://github.com/Manan-Santoki/Tack/releases/latest/download/Tack.dmg)
+
+<img src="docs/list.png" width="400" alt="Tack in list view, showing a command, a link, code and an email address" />
+<img src="docs/grid.png" width="400" alt="Tack in grid view, showing the same clips as tiles" />
+
+</div>
+
+## Features
+
+- **Opens where you're typing:** at the text cursor, or the focused field or mouse pointer in apps that don't report their cursor.
+- **Keeps the original:** images stay full resolution, and rich text and multiple files stay intact. Every format is saved byte for byte.
+- **Knows what you copied:** links, email addresses and code are detected, and searching "link" or "code" finds them.
 - **List or grid:** list favours text, grid favours image previews.
+- **Pins:** pinned clips stay at the top and are never removed by the history limit.
+- **Private:** history is encrypted and stays on your Mac. Passwords are skipped by default.
 - **Your choice on other devices:** record or ignore clips arriving from your iPhone through Universal Clipboard.
+- **Native:** Swift and SwiftUI with no dependencies.
 
-## Requirements
+## Install
 
-- macOS 26 or later
-- Xcode 26 or later to build (the Command Line Tools alone aren't enough)
+1. [Download Tack.dmg](https://github.com/Manan-Santoki/Tack/releases/latest/download/Tack.dmg), open it, and drag Tack to Applications.
+2. Releases aren't notarized yet, so macOS blocks the app until you clear the quarantine flag:
+   ```bash
+   xattr -d com.apple.quarantine /Applications/Tack.app
+   ```
+3. Open Tack and allow it under System Settings → Privacy & Security → Accessibility. It needs this to paste for you and to find the text cursor.
+4. If a Keychain prompt appears, click **Always Allow**. Tack keeps its encryption key there.
 
-## Build and install
-
-```bash
-git clone https://github.com/Manan-Santoki/ClipHistory.git
-cd ClipHistory
-bash scripts/build-dmg.sh
-cp -R dist/ClipHistory.app /Applications/
-open /Applications/ClipHistory.app
-```
-
-Then allow ClipHistory under System Settings → Privacy & Security → Accessibility. It's needed to paste for you and to find the text cursor.
-
-Without a signing certificate the app gets an ad-hoc signature, so macOS treats each rebuild as a new app and asks for Keychain and Accessibility approval again. To avoid that, add your Apple ID under Xcode → Settings → Accounts and create an Apple Development certificate. The build script uses it automatically.
+Tack needs macOS 26 or later. To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Usage
 
@@ -49,26 +58,18 @@ Without a signing certificate the app gets an ad-hoc signature, so macOS treats 
 | Delete | `⌘⌫` |
 | Close | `Esc` or click away |
 
-Right-click a clip for the same actions.
+Right-click a clip for more actions, like opening a link. Settings is in the menu bar icon's menu.
 
-## Privacy
+## Limits
 
-- History stays on your Mac, encrypted with AES-256-GCM. The key is in your Keychain.
-- Clips marked as sensitive by their app, such as passwords from a password manager, aren't recorded unless you turn on **Record passwords and sensitive clips** in Settings. When it's on, they appear in the popup in plain view.
-- You can turn off recording per app in Settings.
-- The only network request is a check of this repo's GitHub releases at launch.
+- Copied files are stored as references, so a file clip stops working if the original is moved or deleted.
+- A single clip is limited to 200 MB. Above that, its largest formats aren't kept.
+- Some apps don't report their text cursor. Tack falls back to the focused field or the mouse pointer there.
 
-Copied files are stored as references, so a file clip stops working if the original is moved or deleted. A single clip is limited to 200 MB; above that, its largest formats aren't kept.
+## Project
 
-## Development
+- [Changelog](CHANGELOG.md)
+- [Contributing and releasing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
 
-```bash
-swift build
-swift test
-```
-
-Use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` if `xcode-select` points at the Command Line Tools.
-
-## License
-
-[MIT](LICENSE), © 2026 weiykong.
+Tack started as a fork of [ClipHistory](https://github.com/weiykong/ClipHistory) by weiykong. [MIT licensed](LICENSE).

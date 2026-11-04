@@ -127,7 +127,7 @@ final class AppSettings {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("ClipHistory: launch at login update failed: \(error.localizedDescription)")
+            NSLog("Tack: launch at login update failed: \(error.localizedDescription)")
         }
     }
 }

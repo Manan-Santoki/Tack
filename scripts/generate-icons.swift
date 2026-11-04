@@ -28,7 +28,7 @@ func write(_ c: CGContext, to path: String) {
 
 // ─── app icon drawing ─────────────────────────────────────────────────────────
 //
-//  A single white clipboard on graphite, on Apple's standard icon grid: the
+//  A single white thumbtack on graphite, on Apple's standard icon grid: the
 //  body takes up 824/1024 of the canvas, leaving room for the shadow.
 
 func drawAppIcon(_ c: CGContext, px: Int) {
@@ -57,30 +57,39 @@ func drawAppIcon(_ c: CGContext, px: Int) {
                          end: CGPoint(x: s / 2, y: body.minY), options: [])
     c.restoreGState()
 
-    // Board
-    let boardWidth = body.width * 0.46
-    let boardHeight = body.width * 0.58
-    let board = CGRect(x: s / 2 - boardWidth / 2, y: s / 2 - boardHeight / 2 - s * 0.015,
-                       width: boardWidth, height: boardHeight)
-    let boardRadius = boardWidth * 0.17
+    // Thumbtack, drawn upright around the centre and then tilted
+    let unit = body.width
     let white = CGColor(gray: 1, alpha: 1)
-    c.addPath(CGPath(roundedRect: board, cornerWidth: boardRadius, cornerHeight: boardRadius, transform: nil))
+    c.saveGState()
+    c.translateBy(x: s / 2, y: s / 2)
+    c.rotate(by: -.pi / 5.5)
     c.setFillColor(white)
+
+    let capWidth = unit * 0.34, capHeight = unit * 0.075
+    let capTop = unit * 0.31
+    let cap = CGRect(x: -capWidth / 2, y: capTop - capHeight, width: capWidth, height: capHeight)
+    c.addPath(CGPath(roundedRect: cap, cornerWidth: capHeight / 2, cornerHeight: capHeight / 2, transform: nil))
     c.fillPath()
 
-    // Clip, set off from the board by a gap in the background colour
-    let clipWidth = boardWidth * 0.46
-    let clipHeight = boardWidth * 0.20
-    let clip = CGRect(x: board.midX - clipWidth / 2, y: board.maxY - clipHeight * 0.45,
-                      width: clipWidth, height: clipHeight)
-    let gap = boardWidth * 0.055
-    let halo = clip.insetBy(dx: -gap, dy: -gap)
-    c.addPath(CGPath(roundedRect: halo, cornerWidth: halo.height / 2, cornerHeight: halo.height / 2, transform: nil))
-    c.setFillColor(CGColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1))
+    // Barrel between the cap and the collar
+    let gap = unit * 0.022
+    let barrelTop = cap.minY - gap
+    let barrelBottom = barrelTop - unit * 0.19
+    // Barrel, collar and needle as one shape, so no seams show between them
+    let collarBottom = barrelBottom - unit * 0.12
+    let needleWidth = unit * 0.034
+    c.move(to: CGPoint(x: -unit * 0.095, y: barrelTop))
+    c.addLine(to: CGPoint(x: unit * 0.095, y: barrelTop))
+    c.addLine(to: CGPoint(x: unit * 0.095, y: barrelBottom))
+    c.addLine(to: CGPoint(x: unit * 0.19, y: collarBottom))
+    c.addLine(to: CGPoint(x: needleWidth / 2, y: collarBottom))
+    c.addLine(to: CGPoint(x: 0, y: -unit * 0.40))
+    c.addLine(to: CGPoint(x: -needleWidth / 2, y: collarBottom))
+    c.addLine(to: CGPoint(x: -unit * 0.19, y: collarBottom))
+    c.addLine(to: CGPoint(x: -unit * 0.095, y: barrelBottom))
+    c.closePath()
     c.fillPath()
-    c.addPath(CGPath(roundedRect: clip, cornerWidth: clip.height / 2, cornerHeight: clip.height / 2, transform: nil))
-    c.setFillColor(white)
-    c.fillPath()
+    c.restoreGState()
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────

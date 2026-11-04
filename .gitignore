@@ -15,9 +15,5 @@ DerivedData/
 **/.DS_Store
 
 # Build output (the DMG is a release artifact, not source)
-dist/ClipHistory.app/
-dist/ClipHistory.dmg
-dist/AppIcon.iconset/
-dist/AppIcon.icns
+dist/
 .claude/
-docs/linkedin-mockup.html

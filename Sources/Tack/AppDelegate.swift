@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let onboardingDoneKey = "onboardingComplete"
 
     override init() {
+        LegacyMigration.moveHistory()
         store = ClipboardStore(maxCount: settings.maxItems)
         popup = PopupWindowController(store: store, settings: settings, updateChecker: updateChecker)
         super.init()
@@ -80,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = NSWindow(contentViewController: NSHostingController(rootView: OnboardingView(settings: settings) { [weak self] in
             self?.onboardingWindow?.close()
         }))
-        window.title = "Welcome to ClipHistory"
+        window.title = "Welcome to Tack"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -157,14 +158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             Unmanaged.passUnretained(self).toOpaque(),
             &hotkeyHandlerRef
         )
-        if status != noErr { NSLog("ClipHistory: failed to install hotkey handler: \(status)") }
+        if status != noErr { NSLog("Tack: failed to install hotkey handler: \(status)") }
     }
 
     private func registerHotkey() {
         if let hotkeyRef { UnregisterEventHotKey(hotkeyRef) }
         hotkeyRef = nil
 
-        let id = EventHotKeyID(signature: 0x43484B59 /* "CHKY" */, id: 1)
+        let id = EventHotKeyID(signature: 0x5441434B /* "TACK" */, id: 1)
         let status = RegisterEventHotKey(
             UInt32(settings.hotkey.keyCode),
             settings.hotkey.carbonModifierFlags,
@@ -173,7 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             0,
             &hotkeyRef
         )
-        if status != noErr { NSLog("ClipHistory: failed to register hotkey: \(status)") }
+        if status != noErr { NSLog("Tack: failed to register hotkey: \(status)") }
     }
 }
 

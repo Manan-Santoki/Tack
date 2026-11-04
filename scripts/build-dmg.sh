@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="ClipHistory"
-VERSION="2.0.0"
+APP_NAME="Tack"
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION")"
 DIST="$ROOT/dist"
 APP_BUNDLE="$DIST/$APP_NAME.app"
 DMG="$DIST/$APP_NAME.dmg"
@@ -45,16 +45,16 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>ClipHistory</string>
+    <string>Tack</string>
 
     <key>CFBundleIdentifier</key>
-    <string>io.github.manan-santoki.cliphistory</string>
+    <string>io.github.manan-santoki.tack</string>
 
     <key>CFBundleName</key>
-    <string>ClipHistory</string>
+    <string>Tack</string>
 
     <key>CFBundleDisplayName</key>
-    <string>ClipHistory</string>
+    <string>Tack</string>
 
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
@@ -82,17 +82,22 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <true/>
 
     <key>NSAccessibilityUsageDescription</key>
-    <string>ClipHistory needs Accessibility access to paste clips and to open at your text cursor.</string>
+    <string>Tack needs Accessibility access to paste clips and to open at your text cursor.</string>
 </dict>
 </plist>
 PLIST
 
 # ── 4. Ad-hoc code sign ───────────────────────────────────────────────────────
-# A stable identity keeps Accessibility and Keychain approvals across rebuilds.
-# An ad-hoc signature looks like a new app to macOS every time.
-IDENTITY="$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)"
+# Set TACK_SIGN_IDENTITY to choose a certificate. Otherwise use an Apple Development
+# one if available: a stable identity keeps Accessibility and Keychain approvals across
+# rebuilds, while an ad-hoc signature looks like a new app to macOS every time.
+IDENTITY="${TACK_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)}"
 echo "▸ Code signing (${IDENTITY:-ad-hoc})…"
-codesign --force --sign "${IDENTITY:--}" "$APP_BUNDLE"
+if [[ "$IDENTITY" == "Developer ID"* ]]; then
+    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP_BUNDLE"
+else
+    codesign --force --sign "${IDENTITY:--}" "$APP_BUNDLE"
+fi
 
 # ── 5. Create DMG with drag-to-Applications layout ────────────────────────────
 echo "▸ Creating DMG…"
@@ -110,6 +115,10 @@ hdiutil create \
     -ov \
     -format    UDZO \
     -o         "$DMG"
+
+if [[ "$IDENTITY" == "Developer ID"* ]]; then
+    codesign --force --timestamp --sign "$IDENTITY" "$DMG"
+fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""

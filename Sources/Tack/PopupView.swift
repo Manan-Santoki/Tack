@@ -163,7 +163,7 @@ struct PopupView: View {
                         if let thumbnail = store.thumbnail(for: item) {
                             Image(nsImage: thumbnail)
                                 .resizable()
-                                .aspectRatio(contentMode: .fill)
+                                .aspectRatio(contentMode: .fit)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             previewText(item, size: NSFont.smallSystemFontSize)

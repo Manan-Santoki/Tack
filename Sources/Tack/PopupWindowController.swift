@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// Takes keyboard focus without activating ClipHistory, so the app being pasted into
+/// Takes keyboard focus without activating Tack, so the app being pasted into
 /// stays frontmost and keeps its text cursor.
 private final class PopupPanel: NSPanel {
     override var canBecomeKey: Bool { true }

@@ -21,7 +21,7 @@ final class UpdateChecker {
 
     func checkForUpdate() {
         Task {
-            var request = URLRequest(url: URL(string: "https://api.github.com/repos/Manan-Santoki/ClipHistory/releases/latest")!)
+            var request = URLRequest(url: URL(string: "https://api.github.com/repos/Manan-Santoki/Tack/releases/latest")!)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.timeoutInterval = 10
 

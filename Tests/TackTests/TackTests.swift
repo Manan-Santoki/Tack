@@ -1,16 +1,16 @@
 import AppKit
 import CryptoKit
 import Testing
-@testable import ClipHistory
+@testable import Tack
 
 // MARK: - Helpers
 
 private func makePasteboard() -> NSPasteboard {
-    NSPasteboard(name: .init("cliphistory.test.\(UUID().uuidString)"))
+    NSPasteboard(name: .init("tack.test.\(UUID().uuidString)"))
 }
 
 private func makeDirectory() -> URL {
-    FileManager.default.temporaryDirectory.appendingPathComponent("cliphistory-\(UUID().uuidString)")
+    FileManager.default.temporaryDirectory.appendingPathComponent("tack-\(UUID().uuidString)")
 }
 
 private func makePNG(width: Int, height: Int) -> Data {
@@ -255,6 +255,46 @@ func sensitiveClipsAreCapturedWhenAllowed(marker: String) throws {
     #expect(blobs.count == 6)
 }
 
+// MARK: - Migration
+
+@MainActor
+@Test func historyMovesFromTheOldFolderOnce() throws {
+    let old = makeDirectory()
+    let new = makeDirectory()
+    defer {
+        try? FileManager.default.removeItem(at: old)
+        try? FileManager.default.removeItem(at: new)
+    }
+    let key = SymmetricKey(size: .bits256)
+    let source = makePasteboard()
+    source.clearContents()
+    source.setString("carried over", forType: .string)
+    source.setData(Data("<b>carried over</b>".utf8), forType: .html)
+
+    let store = ClipboardStore(maxCount: 10, directory: old, key: key)
+    store.capture(from: source)
+    store.saveNow()
+
+    LegacyMigration.moveHistory(from: old, to: new)
+    let moved = ClipboardStore(maxCount: 10, directory: new, key: key)
+    let item = try #require(moved.items.first)
+    let target = makePasteboard()
+    moved.restore(item, to: target)
+    #expect(target.data(forType: .html) == Data("<b>carried over</b>".utf8))
+
+    // A second run with leftovers must not replace newer history.
+    source.clearContents()
+    source.setString("newer", forType: .string)
+    moved.capture(from: source)
+    moved.saveNow()
+    let stale = ClipboardStore(maxCount: 10, directory: old, key: key)
+    stale.capture(from: target)
+    stale.saveNow()
+    LegacyMigration.moveHistory(from: old, to: new)
+    let again = ClipboardStore(maxCount: 10, directory: new, key: key)
+    #expect(again.items.first?.kind == .text("newer"))
+}
+
 // MARK: - Placement
 
 private let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
@@ -294,7 +334,7 @@ private let popup = CGSize(width: 360, height: 400)
     "http://localhost:3000/health",
     "www.example.com",
     "example.com",
-    "github.com/Manan-Santoki/ClipHistory",
+    "github.com/Manan-Santoki/Tack",
     "  https://example.com  \n",
 ])
 func detectsLinks(text: String) {
@@ -372,7 +412,7 @@ func leavesPlainTextAlone(text: String) {
 
 @MainActor
 @Test func loadingSettingsDoesNotWipeThem() throws {
-    let suite = "cliphistory.test.\(UUID().uuidString)"
+    let suite = "tack.test.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -399,7 +439,7 @@ func leavesPlainTextAlone(text: String) {
 
 @MainActor
 @Test func otherDevicesAreRecordedByDefault() throws {
-    let suite = "cliphistory.test.\(UUID().uuidString)"
+    let suite = "tack.test.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
     let settings = AppSettings(defaults: defaults)

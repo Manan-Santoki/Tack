@@ -9,7 +9,7 @@ struct OnboardingView: View {
             Section {
                 AccessibilityStatusRow()
             } footer: {
-                Text("Lets ClipHistory paste for you and open at your text cursor.")
+                Text("Lets Tack paste for you and open at your text cursor.")
             }
 
             Section {

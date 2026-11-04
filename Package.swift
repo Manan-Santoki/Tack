@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClipHistory",
+    name: "Tack",
     platforms: [.macOS(.v26)],
     targets: [
         .executableTarget(
-            name: "ClipHistory",
-            path: "Sources/ClipHistory"
+            name: "Tack",
+            path: "Sources/Tack"
         ),
         .testTarget(
-            name: "ClipHistoryTests",
-            dependencies: ["ClipHistory"],
-            path: "Tests/ClipHistoryTests"
+            name: "TackTests",
+            dependencies: ["Tack"],
+            path: "Tests/TackTests"
         ),
     ]
 )

@@ -1,11 +1,11 @@
 import SwiftUI
 
 @main
-struct ClipHistoryApp: App {
+struct TackApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra("ClipHistory", systemImage: "list.clipboard") {
+        MenuBarExtra("Tack", systemImage: "pin.fill") {
             MenuContent(delegate: delegate, settings: delegate.settings)
         }
 
@@ -34,7 +34,7 @@ private struct MenuContent: View {
         }
         .keyboardShortcut(",")
 
-        Button("Quit ClipHistory") {
+        Button("Quit Tack") {
             NSApp.terminate(nil)
         }
         .keyboardShortcut("q")
