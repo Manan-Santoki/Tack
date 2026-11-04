@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let settings = AppSettings()
     let store: ClipboardStore
 
-    private let updateChecker = UpdateChecker()
+    let updateChecker = UpdateChecker()
     private let popup: PopupWindowController
 
     private var onboardingWindow: NSWindow?
@@ -58,7 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             showOnboarding()
         }
 
-        updateChecker.checkForUpdate()
+        updateChecker.start(
+            shouldInstall: { [settings] in settings.installUpdatesAutomatically },
+            canRestart: { [popup] in !popup.isOpen }
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {

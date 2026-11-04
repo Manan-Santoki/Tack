@@ -52,6 +52,10 @@ final class AppSettings {
         didSet { save() }
     }
 
+    var installUpdatesAutomatically = true {
+        didSet { save() }
+    }
+
     /// Bundle IDs of apps whose copies are not recorded.
     var excludedBundleIDs: Set<String> = [] {
         didSet { save() }
@@ -78,6 +82,7 @@ final class AppSettings {
         static let excludedBundleIDs = "excludedBundleIDs"
         static let layout = "layout"
         static let recordSensitive = "recordSensitive"
+        static let installUpdatesAutomatically = "installUpdatesAutomatically"
         static let recordFromOtherDevices = "recordFromOtherDevices"
     }
 
@@ -101,6 +106,7 @@ final class AppSettings {
         }
         recordFromOtherDevices = defaults.object(forKey: Keys.recordFromOtherDevices) as? Bool ?? true
         recordSensitive = defaults.bool(forKey: Keys.recordSensitive)
+        installUpdatesAutomatically = defaults.object(forKey: Keys.installUpdatesAutomatically) as? Bool ?? true
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
@@ -115,6 +121,7 @@ final class AppSettings {
         defaults.set(Array(excludedBundleIDs), forKey: Keys.excludedBundleIDs)
         defaults.set(layout.rawValue, forKey: Keys.layout)
         defaults.set(recordSensitive, forKey: Keys.recordSensitive)
+        defaults.set(installUpdatesAutomatically, forKey: Keys.installUpdatesAutomatically)
         defaults.set(recordFromOtherDevices, forKey: Keys.recordFromOtherDevices)
     }
 

@@ -717,6 +717,113 @@ private func redPixelWidth(in host: NSView) throws -> CGFloat? {
     return CGFloat(maxX - minX + 1) / scale
 }
 
+// MARK: - Updates
+
+private func run(_ path: String, _ arguments: [String]) throws -> Int32 {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: path)
+    process.arguments = arguments
+    process.standardError = FileHandle.nullDevice
+    process.standardOutput = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    return process.terminationStatus
+}
+
+private func makeApp(at url: URL, script: String) throws {
+    let macOS = url.appendingPathComponent("Contents/MacOS")
+    try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+    let plist = #"<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>test.tack.updater</string><key>CFBundleExecutable</key><string>A</string></dict></plist>"#
+    try plist.write(to: url.appendingPathComponent("Contents/Info.plist"), atomically: true, encoding: .utf8)
+    let executable = macOS.appendingPathComponent("A")
+    try "#!/bin/sh\necho \(script)\n".write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+}
+
+@Test func releaseFindsItsDownloads() throws {
+    let json = #"{"tag_name":"v2.1.0","html_url":"https://example.com/r","assets":[{"name":"Tack.dmg","browser_download_url":"https://example.com/Tack.dmg"}]}"#
+    let release = try JSONDecoder().decode(Updater.Release.self, from: Data(json.utf8))
+    #expect(release.version == "2.1.0")
+    #expect(release.assetURL(named: "Tack.dmg")?.lastPathComponent == "Tack.dmg")
+    #expect(release.assetURL(named: "other") == nil)
+}
+
+@Test func checksumMustMatchTheDownload() throws {
+    let file = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: file) }
+    try Data("hello".utf8).write(to: file)
+    let good = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  Tack.dmg\n"
+    try Updater.verifyChecksum(of: file, against: good)
+    #expect(throws: Updater.UpdateError.checksumMismatch) {
+        try Updater.verifyChecksum(of: file, against: String(repeating: "0", count: 64) + "  Tack.dmg")
+    }
+    #expect(throws: Updater.UpdateError.checksumMismatch) {
+        try Updater.verifyChecksum(of: file, against: "")
+    }
+}
+
+@Test func adHocAppsCannotBeUpdated() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let app = directory.appendingPathComponent("A.app")
+    try makeApp(at: app, script: "one")
+    #expect(try run("/usr/bin/codesign", ["--force", "--sign", "-", app.path]) == 0)
+    #expect(throws: Updater.UpdateError.unsignedApp) {
+        _ = try Updater.requirement(ofAppAt: app)
+    }
+}
+
+@Test func onlyAppsMeetingTheRequirementPass() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let good = directory.appendingPathComponent("Good.app")
+    let other = directory.appendingPathComponent("Other.app")
+    try makeApp(at: good, script: "good")
+    try makeApp(at: other, script: "other")
+    #expect(try run("/usr/bin/codesign", ["--force", "--sign", "-", good.path]) == 0)
+    #expect(try run("/usr/bin/codesign", ["--force", "--sign", "-", other.path]) == 0)
+
+    // Ad-hoc signatures pin one exact build, which is enough to tell these apart here.
+    var code: SecStaticCode?
+    var requirement: SecRequirement?
+    #expect(SecStaticCodeCreateWithPath(good as CFURL, [], &code) == errSecSuccess)
+    #expect(SecCodeCopyDesignatedRequirement(try #require(code), [], &requirement) == errSecSuccess)
+    let goodRequirement = try #require(requirement)
+
+    try Updater.verify(appAt: good, requirement: goodRequirement)
+    #expect(throws: Updater.UpdateError.invalidSignature) {
+        try Updater.verify(appAt: other, requirement: goodRequirement)
+    }
+
+    // Changing a signed app afterwards must fail too.
+    try "#!/bin/sh\necho tampered\n".write(to: good.appendingPathComponent("Contents/MacOS/A"), atomically: true, encoding: .utf8)
+    #expect(throws: Updater.UpdateError.invalidSignature) {
+        try Updater.verify(appAt: good, requirement: goodRequirement)
+    }
+}
+
+@Test func installSwapsTheAppAndRestoresItOnFailure() throws {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let staging = directory.appendingPathComponent("staging")
+    try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+    let current = directory.appendingPathComponent("A.app")
+    let staged = staging.appendingPathComponent("A.app")
+    try makeApp(at: current, script: "old")
+    try makeApp(at: staged, script: "new")
+
+    try Updater.install(staged, over: current)
+    let installed = try String(contentsOf: current.appendingPathComponent("Contents/MacOS/A"), encoding: .utf8)
+    #expect(installed.contains("new"))
+    #expect(!FileManager.default.fileExists(atPath: staging.path))
+
+    // A missing download leaves the installed app in place.
+    let missing = directory.appendingPathComponent("gone/A.app")
+    try FileManager.default.createDirectory(at: missing.deletingLastPathComponent(), withIntermediateDirectories: true)
+    #expect(throws: (any Error).self) { try Updater.install(missing, over: current) }
+    #expect(FileManager.default.fileExists(atPath: current.path))
+}
+
 // MARK: - Settings
 
 @MainActor
@@ -733,11 +840,13 @@ private func redPixelWidth(in host: NSView) throws -> CGFloat? {
     settings.layout = .grid
     settings.recordFromOtherDevices = false
     settings.recordSensitive = true
+    settings.installUpdatesAutomatically = false
 
     let reloaded = AppSettings(defaults: defaults)
     #expect(reloaded.layout == .grid)
     #expect(!reloaded.recordFromOtherDevices)
     #expect(reloaded.recordSensitive)
+    #expect(!reloaded.installUpdatesAutomatically)
     #expect(reloaded.maxItems == 120)
     #expect(reloaded.hideImages)
     #expect(reloaded.excludedBundleIDs == ["com.example.secret"])
@@ -754,6 +863,7 @@ private func redPixelWidth(in host: NSView) throws -> CGFloat? {
     let settings = AppSettings(defaults: defaults)
     #expect(settings.recordFromOtherDevices)
     #expect(!settings.recordSensitive)
+    #expect(settings.installUpdatesAutomatically)
 }
 
 @Test func comparesVersionsNumerically() {

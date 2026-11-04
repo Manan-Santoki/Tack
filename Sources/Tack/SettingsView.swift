@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: AppSettings
     let store: ClipboardStore
+    let updateChecker: UpdateChecker
 
     @State private var confirmingClear = false
 
@@ -79,7 +80,14 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("Version", value: UpdateChecker.currentVersion)
+                Toggle("Install updates automatically", isOn: $settings.installUpdatesAutomatically)
+                LabeledContent("Version \(UpdateChecker.currentVersion)") {
+                    Button("Check Now") { updateChecker.checkNow() }
+                }
+            } footer: {
+                if let status = updateChecker.status {
+                    Text(status)
+                }
             }
         }
         .formStyle(.grouped)

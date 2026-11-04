@@ -18,6 +18,8 @@ macOS ties Accessibility and Keychain approvals to an app's signature. With an a
 
 To avoid that, add your Apple ID under Xcode → Settings → Accounts and create an Apple Development certificate. `build-dmg.sh` uses it automatically.
 
+Local builds aren't signed with the release certificate, so they can't update a released copy, and a released copy won't update them.
+
 If Accessibility shows Tack as on but Tack can't paste or find the cursor, macOS may have recorded a different build. Delete any extra copies, such as `dist/Tack.app`, then remove Tack from the Accessibility list and add `/Applications/Tack.app` again.
 
 ## Pull requests
@@ -33,16 +35,14 @@ If Accessibility shows Tack as on but Tack can't paste or find the cursor, macOS
 3. Commit to `main` and push.
 4. Run `scripts/release.sh`.
 
-The script runs the tests, then tags and pushes the version. The release workflow then tests again, builds the DMG, and publishes a GitHub release with the changelog section as its notes. Tack checks for that release at launch and offers the update.
+The script runs the tests, then tags and pushes the version. The release workflow then tests again, builds and signs the DMG, and publishes a GitHub release with the changelog section as its notes. Installed copies of Tack pick it up within six hours, or at their next launch.
 
-### Notarized releases
+### Signing
 
-Releases are ad-hoc signed by default, so people have to clear the quarantine flag by hand. To notarize them, add these repository secrets. This needs a paid Apple Developer membership.
+Every release is signed with one self-made certificate, stored in the `TACK_SIGNING_P12_BASE64` and `TACK_SIGNING_P12_PASSWORD` repository secrets. It doesn't need an Apple Developer account.
 
-| Secret | Value |
-|---|---|
-| `DEVELOPER_ID_P12_BASE64` | Your Developer ID Application certificate as a `.p12`, base64 encoded |
-| `DEVELOPER_ID_P12_PASSWORD` | The password of that `.p12` |
-| `APPLE_ID` | Your Apple ID email |
-| `APPLE_TEAM_ID` | Your team ID |
-| `APPLE_APP_PASSWORD` | An [app-specific password](https://support.apple.com/102654) |
+Keeping the same certificate is what makes updates work. macOS keeps Accessibility and Keychain approvals across versions, and Tack refuses any update signed with a different certificate. The release fails if the app isn't signed with the certificate recorded in `release.yml`.
+
+Don't lose or replace it. A new certificate would mean every user has to reinstall Tack by hand and approve it again.
+
+Because the certificate isn't from Apple, a first install still needs the quarantine step in the README. Updates don't.

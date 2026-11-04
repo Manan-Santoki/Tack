@@ -30,17 +30,20 @@ Press a shortcut, and your history opens right where you're typing. Pick a clip,
 - **Pins:** pinned clips stay at the top and are never removed by the history limit.
 - **Private:** history is encrypted and stays on your Mac. Passwords are skipped by default.
 - **Your choice on other devices:** record or ignore clips arriving from your iPhone through Universal Clipboard.
+- **Automatic updates:** new versions install themselves, and only if they're signed with Tack's own certificate.
 - **Native:** Swift and SwiftUI with no dependencies.
 
 ## Install
 
 1. [Download Tack.dmg](https://github.com/Manan-Santoki/Tack/releases/latest/download/Tack.dmg), open it, and drag Tack to Applications.
-2. Releases aren't notarized yet, so macOS blocks the app until you clear the quarantine flag:
+2. Tack isn't notarized by Apple, so macOS blocks a first install until you clear the quarantine flag:
    ```bash
    xattr -d com.apple.quarantine /Applications/Tack.app
    ```
 3. Open Tack and allow it under System Settings → Privacy & Security → Accessibility. It needs this to paste for you and to find the text cursor.
 4. If a Keychain prompt appears, click **Always Allow**. Tack keeps its encryption key there.
+
+You only do this once. Tack updates itself, and keeps its permissions when it does. You can turn that off in Settings.
 
 Tack needs macOS 26 or later. To build it yourself, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

@@ -13,13 +13,12 @@ jobs:
     permissions:
       contents: write
 
-    # All optional. Without them the release is ad-hoc signed.
     env:
-      DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
-      DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      TACK_SIGNING_P12_BASE64: ${{ secrets.TACK_SIGNING_P12_BASE64 }}
+      TACK_SIGNING_P12_PASSWORD: ${{ secrets.TACK_SIGNING_P12_PASSWORD }}
+      # Installed copies only accept updates signed by this certificate. Changing it
+      # breaks automatic updates and makes everyone approve the app again.
+      TACK_CERTIFICATE_ROOT: "4BEB38162B0CC3F4659A0BBC18460534AEAFDC5A"
 
     steps:
       - uses: actions/checkout@v4
@@ -55,39 +54,44 @@ jobs:
           fi
 
       - name: Import signing certificate
-        if: env.DEVELOPER_ID_P12_BASE64 != ''
         run: |
+          if [ -z "$TACK_SIGNING_P12_BASE64" ]; then
+            echo "::error::The TACK_SIGNING_P12_BASE64 secret is missing"
+            exit 1
+          fi
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(uuidgen)"
-          echo "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          echo "$TACK_SIGNING_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
           security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 3600 "$keychain"
+          security set-keychain-settings "$keychain"
           security unlock-keychain -p "$password" "$keychain"
-          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$TACK_SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" login.keychain-db
           rm "$RUNNER_TEMP/cert.p12"
-          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)"
+          identity="$(security find-identity -p codesigning "$keychain" | sed -n 's/.*\([0-9A-F]\{40\}\) "Tack Release Signing".*/\1/p' | head -1)"
           echo "TACK_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
 
       - name: Build
         run: bash scripts/build-dmg.sh
 
-      - name: Notarize
-        if: env.TACK_SIGN_IDENTITY != '' && env.APPLE_APP_PASSWORD != ''
+      - name: Check the signature
         run: |
-          xcrun notarytool submit dist/Tack.dmg \
-            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
-          xcrun stapler staple dist/Tack.dmg
+          codesign --verify --strict dist/Tack.app
+          requirement="$(codesign -dr - dist/Tack.app 2>&1)"
+          echo "$requirement"
+          if ! echo "$requirement" | grep -qi "certificate root = H\"$TACK_CERTIFICATE_ROOT\""; then
+            echo "::error::Tack.app isn't signed with the project's certificate"
+            exit 1
+          fi
 
-      - name: Add install note for unsigned builds
-        if: env.TACK_SIGN_IDENTITY == ''
+      - name: Add install note
         run: |
           {
             echo
             echo "### Installing"
             echo
-            echo "This build isn't notarized, so after copying Tack to Applications, run:"
+            echo "Tack updates itself automatically. For a first install, copy Tack to Applications, then run:"
             echo
             echo '```bash'
             echo 'xattr -d com.apple.quarantine /Applications/Tack.app'

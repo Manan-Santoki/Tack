@@ -88,16 +88,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 PLIST
 
 # ── 4. Ad-hoc code sign ───────────────────────────────────────────────────────
-# Set TACK_SIGN_IDENTITY to choose a certificate. Otherwise use an Apple Development
-# one if available: a stable identity keeps Accessibility and Keychain approvals across
-# rebuilds, while an ad-hoc signature looks like a new app to macOS every time.
+# Releases set TACK_SIGN_IDENTITY to the project's certificate. Otherwise use an Apple
+# Development one if available: a stable identity keeps Accessibility and Keychain approvals
+# across rebuilds, while an ad-hoc signature looks like a new app to macOS every time.
 IDENTITY="${TACK_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development[^"]*\)".*/\1/p' | head -1)}"
 echo "▸ Code signing (${IDENTITY:-ad-hoc})…"
-if [[ "$IDENTITY" == "Developer ID"* ]]; then
-    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP_BUNDLE"
-else
-    codesign --force --sign "${IDENTITY:--}" "$APP_BUNDLE"
-fi
+codesign --force --sign "${IDENTITY:--}" "$APP_BUNDLE"
 
 # ── 5. Create DMG with drag-to-Applications layout ────────────────────────────
 echo "▸ Creating DMG…"
@@ -115,10 +111,6 @@ hdiutil create \
     -ov \
     -format    UDZO \
     -o         "$DMG"
-
-if [[ "$IDENTITY" == "Developer ID"* ]]; then
-    codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 echo ""

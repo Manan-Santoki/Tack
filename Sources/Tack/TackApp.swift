@@ -13,7 +13,7 @@ struct TackApp: App {
         }
 
         Settings {
-            SettingsView(settings: delegate.settings, store: delegate.store)
+            SettingsView(settings: delegate.settings, store: delegate.store, updateChecker: delegate.updateChecker)
         }
     }
 }

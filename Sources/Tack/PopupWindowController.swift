@@ -31,6 +31,8 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - Show / hide
 
+    var isOpen: Bool { panel?.isVisible == true }
+
     func toggle() {
         if panel?.isVisible == true { hide() } else { show() }
     }
