@@ -45,18 +45,36 @@ enum CaretLocator {
               AXValueGetValue(value, .cfRange, &selection)
         else { return nil }
 
-        // Many apps return nothing for an empty range, so also measure the neighbouring
-        // characters and take the edge touching the cursor.
-        if let rect = bounds(of: element, location: selection.location, length: 0) {
-            return rect
+        // Measure a real character first. Empty ranges are unreliable: some apps return nothing,
+        // and TextEdit reports a position one line too high.
+        var count: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &count)
+        let length = (count as? Int) ?? 0
+
+        if selection.location < length,
+           let next = bounds(of: element, location: selection.location, length: 1) {
+            return NSRect(x: next.minX, y: next.minY, width: 0, height: next.height)
         }
-        if selection.location > 0, let rect = bounds(of: element, location: selection.location - 1, length: 1) {
-            return NSRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height)
+        if selection.location > 0,
+           let previous = bounds(of: element, location: selection.location - 1, length: 1) {
+            if character(of: element, at: selection.location - 1)?.isNewline == true {
+                // At the end of the text on a new line, so the cursor sits one line lower.
+                let x = bounds(of: element, location: selection.location, length: 0)?.minX ?? previous.minX
+                return NSRect(x: x, y: previous.minY - previous.height, width: 0, height: previous.height)
+            }
+            return NSRect(x: previous.maxX, y: previous.minY, width: 0, height: previous.height)
         }
-        if let rect = bounds(of: element, location: selection.location, length: 1) {
-            return NSRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
-        }
-        return nil
+        return bounds(of: element, location: selection.location, length: 0)
+    }
+
+    private static func character(of element: AXUIElement, at location: Int) -> Character? {
+        var range = CFRange(location: location, length: 1)
+        guard let rangeValue = AXValueCreate(.cfRange, &range) else { return nil }
+        var result: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element, kAXStringForRangeParameterizedAttribute as CFString, rangeValue, &result
+        ) == .success else { return nil }
+        return (result as? String)?.first
     }
 
     private static func bounds(of element: AXUIElement, location: Int, length: Int) -> NSRect? {

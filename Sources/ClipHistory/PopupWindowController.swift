@@ -11,6 +11,8 @@ private final class PopupPanel: NSPanel {
 @MainActor
 final class PopupWindowController: NSObject, NSWindowDelegate {
     private static let size = CGSize(width: 360, height: 400)
+    /// Clear space around the popup in the window, so its shadow isn't cut off.
+    private static let shadowMargin: CGFloat = 40
 
     private let store: ClipboardStore
     private let settings: AppSettings
@@ -50,7 +52,8 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
             size: Self.size,
             visibleFrame: screen?.visibleFrame ?? anchor
         )
-        panel.setFrame(NSRect(origin: origin, size: Self.size), display: true)
+        let frame = NSRect(origin: origin, size: Self.size).insetBy(dx: -Self.shadowMargin, dy: -Self.shadowMargin)
+        panel.setFrame(frame, display: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(searchField)
         state.isOpen = true
@@ -117,7 +120,7 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
     private func makePanel() -> PopupPanel {
         let panel = PopupPanel(
             contentRect: NSRect(origin: .zero, size: Self.size),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: false
         )
@@ -125,16 +128,11 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
         panel.isFloatingPanel = true
         panel.level = .popUpMenu
         panel.hidesOnDeactivate = false
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.titlebarSeparatorStyle = .none
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            panel.standardWindowButton(button)?.isHidden = true
-        }
-        panel.isMovable = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        // The system shadow and outline follow the window's alpha, which doesn't include the
+        // glass, so they'd draw a dark rectangular edge. PopupView draws its own shadow instead.
+        panel.hasShadow = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.delegate = self
         let hostingView = NSHostingView(rootView: PopupView(
@@ -142,6 +140,7 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
             settings: settings,
             state: state,
             searchField: searchField,
+            shadowMargin: Self.shadowMargin,
             updateChecker: updateChecker,
             onPaste: { [weak self] item, asPlainText in self?.paste(item, asPlainText: asPlainText) },
             onTogglePin: { [weak self] item in self?.store.togglePin(id: item.id) },

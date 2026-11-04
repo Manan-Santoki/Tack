@@ -5,6 +5,7 @@ struct PopupView: View {
     @Bindable var settings: AppSettings
     @Bindable var state: PopupState
     let searchField: SearchTextField
+    let shadowMargin: CGFloat
     let updateChecker: UpdateChecker
     let onPaste: (ClipItem, _ asPlainText: Bool) -> Void
     let onTogglePin: (ClipItem) -> Void
@@ -39,6 +40,8 @@ struct PopupView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 10)
+        .padding(shadowMargin)
         .onChange(of: state.searchText) { state.selectedIndex = 0 }
         .onChange(of: state.isOpen) {
             lastHoverPoint = nil
