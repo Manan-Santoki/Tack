@@ -18,6 +18,8 @@ macOS ties Accessibility and Keychain approvals to an app's signature. With an a
 
 To avoid that, add your Apple ID under Xcode → Settings → Accounts and create an Apple Development certificate. `build-dmg.sh` uses it automatically.
 
+If Accessibility shows Tack as on but Tack can't paste or find the cursor, macOS may have recorded a different build. Delete any extra copies, such as `dist/Tack.app`, then remove Tack from the Accessibility list and add `/Applications/Tack.app` again.
+
 ## Pull requests
 
 - Add a test for anything that can be tested without the UI.

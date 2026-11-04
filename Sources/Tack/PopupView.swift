@@ -76,11 +76,15 @@ struct PopupView: View {
     @ViewBuilder
     private var list: some View {
         if items.isEmpty {
-            if state.searchText.isEmpty {
-                ContentUnavailableView("Nothing copied yet", systemImage: "list.clipboard")
-            } else {
-                ContentUnavailableView.search(text: state.searchText)
+            Group {
+                if state.searchText.isEmpty {
+                    ContentUnavailableView("Nothing copied yet", systemImage: "list.clipboard")
+                } else {
+                    ContentUnavailableView.search(text: state.searchText)
+                }
             }
+            // Fill the space, or the search field drifts down from the top of the popup.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {

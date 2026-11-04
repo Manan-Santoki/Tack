@@ -1,5 +1,6 @@
 import AppKit
 import CryptoKit
+import SwiftUI
 import Testing
 @testable import Tack
 
@@ -406,6 +407,52 @@ func leavesPlainTextAlone(text: String) {
     let target = makePasteboard()
     store.restore(link, to: target)
     #expect(target.string(forType: .string) == "  https://example.com/a  ")
+}
+
+// MARK: - Popup layout
+
+@MainActor
+private func searchFieldTopGap(query: String, layout: PopupLayout = .list) throws -> CGFloat {
+    let directory = makeDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let suite = "tack.test.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let settings = AppSettings(defaults: defaults)
+    settings.layout = layout
+    let state = PopupState()
+    state.searchText = query
+    let field = SearchTextField()
+    let host = NSHostingView(rootView: PopupView(
+        store: ClipboardStore(maxCount: 10, directory: directory, key: SymmetricKey(size: .bits256)),
+        settings: settings,
+        state: state,
+        searchField: field,
+        shadowMargin: 40,
+        updateChecker: UpdateChecker(),
+        onPaste: { _, _ in },
+        onTogglePin: { _ in },
+        onRemove: { _ in }
+    ))
+    host.sizingOptions = []
+    host.frame = NSRect(x: 0, y: 0, width: 440, height: 480)
+    let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.2))
+    host.layoutSubtreeIfNeeded()
+
+    #expect(field.window != nil)
+    let frame = field.convert(field.bounds, to: host)
+    return host.isFlipped ? frame.minY : host.bounds.height - frame.maxY
+}
+
+@MainActor
+@Test(arguments: ["", "no clip matches this"])
+func searchFieldStaysAtTopWithNothingToShow(query: String) throws {
+    // 40 of shadow margin plus the search row's padding.
+    #expect(try searchFieldTopGap(query: query) < 70)
 }
 
 // MARK: - Settings

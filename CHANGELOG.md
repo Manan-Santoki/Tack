@@ -4,6 +4,10 @@ Notable changes to Tack. The format follows [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- The search field stays at the top of the popup when there are no clips or results.
+
 ## [2.0.1] - 2026-11-03
 
 ### Changed
